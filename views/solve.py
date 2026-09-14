@@ -126,10 +126,21 @@ def render(lang: str) -> None:
                            st.session_state["availability"], _SOLVE_SECONDS,
                            availability_avoid=st.session_state.get("availability_avoid", {}),
                            availability_prefer=st.session_state.get("availability_prefer", {}),
+                           assistant_availability=st.session_state.get("assistant_availability", {}),
+                           assistant_availability_avoid=st.session_state.get("assistant_availability_avoid", {}),
+                           assistant_availability_prefer=st.session_state.get("assistant_availability_prefer", {}),
                            ref_schedule=st.session_state.get("ref_schedule") or {})
         secs, _ = build_sections_from_courselist(courses, _PERIOD, cfg)
         instr = build_instructors_from_courselist(courses)
         rooms = build_rooms_from_ui(st.session_state["classrooms"], cfg)
+        from timetabling.room_reservations import apply_room_reservations
+        try:
+            if st.session_state.get("room_reservation_error"):
+                raise ValueError(st.session_state["room_reservation_error"])
+            rooms = apply_room_reservations(rooms, st.session_state.get("room_reservations", []))
+        except ValueError as exc:
+            st.error(str(exc))
+            return
         mark_virtual(secs, rooms, cfg)
         # For small inputs, cap the solver time so repair soft-polish and CP-SAT
         # don't run their full 50-min budget. Formula: 0.5s/block, floor 60s.

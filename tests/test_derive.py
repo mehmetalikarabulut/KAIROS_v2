@@ -22,10 +22,10 @@ def test_blocks_from_tpl_theory_plus_lab():
     assert kinds["lab"].needs_lab is True
 
 
-def test_blocks_practice_folds_into_theory():
-    blocks = derive.blocks_from_tpl("S_01", 2, 2, 0, 3)   # T+P = 4h -> 2 + 2
+def test_blocks_practice_separate_from_theory():
+    blocks = derive.blocks_from_tpl("S_01", 2, 2, 0, 3)   # T=2 and P=2 -> independent components
     assert len(blocks) == 2 and sorted(b.length for b in blocks) == [2, 2]
-    assert all(b.kind == "theory" for b in blocks)
+    assert [b.kind for b in blocks] == ["theory", "practice"]
 
 
 def test_blocks_zero_defaults_to_three():

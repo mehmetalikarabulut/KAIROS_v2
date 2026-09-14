@@ -77,6 +77,10 @@ class Config:
     # per-instructor unavailability (UI School-Settings populates this; CLI leaves it empty).
     # frozenset of (instructor_id/email, day, hour) — read in gen_candidates like a per-id blackout.
     instr_unavailable: frozenset = frozenset()
+    assistant_unavailable: frozenset = frozenset()
+    assistant_avoid: frozenset = frozenset()
+    assistant_preferred: frozenset = frozenset()
+    assistant_prefer_ids: frozenset = frozenset()
     instr_preferred: frozenset = frozenset()  # (iid, day, hour) softly preferred
     instr_avoid: frozenset = frozenset()      # (iid, day, hour) soft penalty per hour
     instr_prefer_ids: frozenset = frozenset() # derived: iids with >=1 preferred slot

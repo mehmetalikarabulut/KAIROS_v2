@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Course Timetabling</strong><br>
-  <sub>Upload a course list and room inventory — get a conflict-free weekly schedule.</sub>
+  <sub>Course timetabling with practical/lab workloads, teaching-assistant availability, and room reservations.</sub>
 </p>
 
 <p align="center">
@@ -17,7 +17,6 @@
   <img src="https://img.shields.io/badge/Streamlit-0b1220?style=for-the-badge&logo=streamlit&logoColor=FF4B4B" alt="Streamlit">
   <img src="https://img.shields.io/badge/Docker-0b1220?style=for-the-badge&logo=docker&logoColor=2496ED" alt="Docker">
   <img src="https://img.shields.io/badge/Google_Cloud_Run-0b1220?style=for-the-badge&logo=googlecloud&logoColor=4285F4" alt="Google Cloud Run">
-  <a href="https://kairos.huguryildiz.com"><img src="https://img.shields.io/badge/kairos.huguryildiz.com-live-4F46E5?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Live"></a>
 </p>
 
 ---
@@ -26,23 +25,63 @@ KAIROS takes a university's raw course and room data and produces a **weekly tim
 
 It runs two ways: a **web app** for non-technical users and a **command-line solver** for batch runs and benchmarking. The math, rules, and design rationale are in [`MODEL.md`](MODEL.md).
 
----
+## Changes in this fork
 
-## 🎬 Demo
+This fork extends KAIROS for scheduling theory, practical, and laboratory teaching
+with shared staff and rooms:
 
-<p align="center">
-  <a href="https://github.com/huguryildiz/KAIROS/releases/download/v1.0.1/KAIROS-promo.mp4">
-    <img src="assets/promo-thumb.jpg" alt="KAIROS — 60-second walkthrough" width="760">
-  </a>
-</p>
+- **Separate teaching components:** T, P, and L produce independent sessions.
+  A named teaching assistant is assigned to P + L hours only; theory requires
+  the instructor alone. A blank assistant name means no assistant is assigned,
+  even when practical or laboratory hours are positive. Instructors remain
+  required for all components.
+- **Name-based staff identity:** instructor and assistant email columns are ignored.
+  Consistent names identify the same person across courses and roles, preventing
+  simultaneous instructor/assistant assignments.
+- **Assistant availability:** separate Unavailable, Avoid, and Preferred settings
+  apply to practical and laboratory sessions.
+- **Staff-constraints CSV:** Settings can export and import name-based Instructor
+  and Assistant Unavailable, Avoid, and Prefer tiers. The CSV is UTF-8 with BOM
+  for Excel and supports safe Merge or explicit Replace all. It does not include
+  policy settings, course-conflict rules, or room reservations.
+- **Room categories and ownership:** classroom, computer laboratory, electronics
+  laboratory, and online sessions have distinct eligibility rules. Rooms may
+  be shared or assigned to one or more departments.
+- **Weekly room reservations:** an optional CSV blocks existing bookings for
+  everyone. No physical room can host two courses at once, including courses
+  from the same department. Sessions can end at a reservation's start or begin
+  at its end.
+- **Input templates and Windows launchers:** Excel/CSV examples include courses,
+  rooms, reservations, and staff constraints. Batch scripts run the project in the `kairos` Conda
+  environment and install the required packages.
+- **Synthetic examples:** bundled inputs use generic role labels and contain no
+  real staff or student records. Actual inputs and generated schedules are excluded
+  from source control and container builds.
 
-<p align="center">
-  <sub>60-second walkthrough — upload, review, set the rules, solve, export.<br>
-  Download:
-  <a href="https://github.com/huguryildiz/KAIROS/releases/download/v1.0.1/KAIROS-promo.mp4">4K</a>
-  · <a href="https://github.com/huguryildiz/KAIROS/releases/download/v1.0.1/KAIROS-promo-1080p.mp4">1080p</a>
-  — or <a href="https://kairos.huguryildiz.com">try it live</a>.</sub>
-</p>
+Use `~Students` for reported enrolment or `Section Capacity` for an approved
+room-seating requirement; the latter takes precedence when both are present.
+At least one must be provided per course row. See [Windows startup](START_ON_WINDOWS.md), [input schema](INPUT_SCHEMA.md), and
+[room reservations](ROOM_RESERVATIONS.md) for usage instructions.
+
+### Public-release privacy check
+
+This fork is intended to be publishable without operational university data.
+Its bundled CSV/XLSX examples contain generic names and reserved `example.test`
+addresses only. Do not add real course lists, staff constraints, schedules,
+screenshots, PDFs, or exported reports to source control.
+
+Before publishing, run:
+
+```powershell
+.\tools\Audit-PublicRelease.ps1
+.\tools\New-PublicReleaseBranch.ps1 -Push -Remote origin -TargetBranch main
+```
+
+The audit rejects common identifiers, real email addresses, PDFs, and
+unapproved binary assets. The release script builds a fresh one-commit Git
+repository from the audited working tree, so prior Git history is excluded from
+the push. It asks for confirmation before any network action. Review all files
+before publishing.
 
 ---
 
@@ -119,7 +158,7 @@ CLI flags: `--courses` is the course-list CSV to optimize. `--rooms` is the clas
 
 ## 🚀 Deployment
 
-KAIROS ships as a single Docker image on **Google Cloud Run**, in the institution's own GCP project, `europe-west1`. The CI deploy keeps **one instance always warm** (`min-instances=1`, `max-instances=1`, session affinity) and is publicly accessible; the live service is mapped to `kairos.huguryildiz.com`. No PII enters the image — course and classroom data are supplied at runtime.
+KAIROS ships as a single Docker image on **Google Cloud Run**, in the institution's own GCP project, `europe-west1`. The CI deploy keeps **one instance always warm** (`min-instances=1`, `max-instances=1`, session affinity) and is publicly accessible. No PII enters the image — course and classroom data are supplied at runtime.
 
 Every push to `main` triggers [`cloudbuild.yaml`](cloudbuild.yaml). To deploy by hand (mirrors CI):
 
@@ -166,3 +205,7 @@ JSON/CSV schedule outputs to `gs://<bucket>/<prefix>/`.
   <strong>KAIROS</strong> · Course Timetabling<br>
   <sub>Every section, placed on a conflict-free weekly grid.</sub>
 </p>
+
+
+Bundled examples are entirely synthetic. Use reserved `example.test` email addresses
+for demonstrations. See [SCHEDULING_GUIDE.md](SCHEDULING_GUIDE.md).

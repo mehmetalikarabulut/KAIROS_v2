@@ -16,7 +16,7 @@ _EN_HEADER = ["Course Code", "Course Name", "Section No", "T", "P", "L",
 
 
 def _row(code="CMPE 113", name="Intro", sec="01", T="3", P="0", L="2",
-         ln="A. Yilmaz", le="a@uni.edu", st="50"):
+         ln="Instructor A", le="a@example.test", st="50"):
     return [code, name, sec, T, P, L, ln, le, st]
 
 
@@ -212,9 +212,9 @@ def test_parse_classrooms_room_cap_header_type_from_name():
     p = parse_classrooms(raw)
     assert p["stats"] == {"valid": 3, "duplicate": 0, "error": 0, "total": 3}
     rooms = ok_rooms(p)
-    assert rooms[0] == {"Room": "A211-PC-L", "Capacity": "99", "Type": "pc", "Dept": ""}   # -PC
-    assert rooms[1] == {"Room": "A316-L", "Capacity": "40", "Type": "lab", "Dept": ""}     # -L
-    assert rooms[2] == {"Room": "A216", "Capacity": "25", "Type": "normal", "Dept": ""}
+    assert rooms[0] == {"Room": "A211-PC-L", "Capacity": "99", "Type": "pc_lab", "Dept": ""}   # -PC
+    assert rooms[1] == {"Room": "A316-L", "Capacity": "40", "Type": "electronics_lab", "Dept": ""}     # -L
+    assert rooms[2] == {"Room": "A216", "Capacity": "25", "Type": "classroom", "Dept": ""}
 
 
 def test_parse_classrooms_explicit_type_column_wins():
@@ -222,17 +222,17 @@ def test_parse_classrooms_explicit_type_column_wins():
            ["A216", "25", "pc"], ["A317-L", "40", ""], ["B100", "40", "studio"]]
     p = parse_classrooms(raw)
     rooms = ok_rooms(p)
-    assert rooms[0]["Type"] == "pc"        # explicit category wins over name (no token)
-    assert rooms[1]["Type"] == "lab"       # blank cell -> derived from -L name token
-    assert rooms[2]["Type"] == "studio"
+    assert rooms[0]["Type"] == "pc_lab"        # explicit category wins over name (no token)
+    assert rooms[1]["Type"] == "electronics_lab"       # blank cell -> derived from -L name token
+    assert rooms[2]["Type"] == "online"
 
 
 def test_parse_classrooms_legacy_lab_boolean_maps_to_lab():
     raw = [["Room", "Capacity", "Lab"], ["A216", "25", "yes"], ["B100", "40", ""]]
     p = parse_classrooms(raw)
     rooms = ok_rooms(p)
-    assert rooms[0]["Type"] == "lab"       # legacy truthy Lab cell -> generic lab
-    assert rooms[1]["Type"] == "normal"
+    assert rooms[0]["Type"] == "electronics_lab"       # legacy truthy Lab cell -> generic lab
+    assert rooms[1]["Type"] == "classroom"
 
 
 def test_parse_classrooms_blank_cap_ok_zero():
@@ -277,4 +277,4 @@ def test_read_raw_and_parse_sample_classrooms_all_ok():
     assert srcs["Room"] == "header" and srcs["Capacity"] == "header"
     assert srcs["Type"] == "header"
     # categorical types parsed straight from the column
-    assert {r["Type"] for r in ok_rooms(p)} <= {"normal", "lab", "pc", "studio"}
+    assert {r["Type"] for r in ok_rooms(p)} <= {"classroom", "electronics_lab", "pc_lab", "online"}

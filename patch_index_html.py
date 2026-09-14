@@ -18,9 +18,9 @@ import os
 import shutil
 import sys
 
-MEASUREMENT_ID = "G-3WR6GHJPN0"
+MEASUREMENT_ID = os.environ.get("KAIROS_ANALYTICS_ID", "")
 
-SITE_URL = "https://kairos.huguryildiz.com/"
+SITE_URL = os.environ.get("KAIROS_SITE_URL", "https://example.invalid/")
 SITE_NAME = "KAIROS"
 PAGE_TITLE = "KAIROS — University Course Timetabling Solver"
 PAGE_DESCRIPTION = (
@@ -96,7 +96,7 @@ def build_seo_head() -> str:
 
 def patch_html(html: str, measurement_id: str) -> str:
     """Inject the GA4 snippet just before </head> (idempotent)."""
-    if measurement_id in html:
+    if not measurement_id or measurement_id in html:
         return html
     return html.replace("</head>", build_snippet(measurement_id) + "</head>", 1)
 

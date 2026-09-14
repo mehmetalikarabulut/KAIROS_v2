@@ -1,5 +1,11 @@
 # KAIROS — Input Data Schema
 
+An optional third input, [weekly room reservations](ROOM_RESERVATIONS.md), blocks
+existing room bookings for all departments. Download `assets/kairos_input_template.xlsx`
+for Courses, Rooms, and Room Reservations sheets.
+Staff constraints are a separate optional CSV (`assets/example_staff_constraints.csv`)
+loaded from Settings. It contains personal availability only.
+
 The two tables a user provides to the KAIROS timetabling UI, and how the solver
 derives everything else from them. This is the **input contract**: the importer
 (`csv_import.py`), the section/room builders (`ui_input.py`), and the data
@@ -33,15 +39,17 @@ fallback order.
 | `COURSE_NAME` | ✓ | Display name. |
 | `DEPT` | ✓ | **Department/faculty name** (e.g. "Faculty of Econ…") → `Section.department`. **Not** the cohort key (see §Cohort). |
 | `SECTION` | ✓ | Section identifier. `"ADA 403_01"` is used **directly** as `section_id`; a bare `"01"` is composed with the code. |
-| `LECTURER` | ✓ | Instructor **display name**. Fallback unique key when `Email` is absent. |
-| `Email` | optional · recommended | Instructor's **unique key** (instructor no-overlap + availability key when present). |
+| `LECTURER` | ✓ | Instructor **display name**. Normalized name is the unique scheduling key. |
+| `Email` | ignored | Not used for scheduling or availability; may be omitted. |
 | `Part-time` | optional | Boolean. Overrides the `(S)` name marker; empty/`false` ⇒ full-time. |
 | `T` | ✓ | Theory hours → theory blocks. |
-| `P` | ✓ | Practice/application hours (`U` = Uygulama) → blocks. |
-| `L` | ✓ | Lab hours → lab block. `L > 0` always produces a block with `needs_lab=True`. If the legacy Plan path pins a specific lab-family room, that exact room is used. Otherwise, an explicit `Room Type` demand (`lab` / `pc` / `studio`) restricts the lab block to that exact room type; with no explicit demand, any lab-family room of sufficient capacity is eligible. |
-| `Section Capacity` | ✓ | **Quota.** The **hard** room-sizing input (`room.Capacity ≥ Section Capacity`). |
-| `~Students` | optional | Legacy/estimated enrolment field. Current solver stores one section size: `Section Capacity` wins; `~Students` is only a fallback in importer paths that permit it. There is no separate soft right-sizing signal yet. |
-| `Room Type` | optional | **Required room category** (demand): `lab / pc / studio`. Empty or `normal` ⇒ no explicit categorical demand. If the section has lab blocks (`L > 0`), the explicit demand applies to those lab blocks while non-lab blocks still use `normal` rooms. If the section has no lab blocks, the explicit demand applies to its theory/practice blocks. Shares Table 2's vocabulary. |
+| `P` | ✓ | Practice hours; aliases U, Practice, Uygulama. Independent practice blocks, never added to T. |
+| `Assistant Name` | optional | Comma-separated required assistants on Practice/Lab only. Blank means no assistant, even if P/L hours or Assistant Email are filled. |
+| `Assistant Email` | ignored | Not used; may be omitted. |
+| `L` | ✓ | Laboratory hours, scheduled independently from Theory and Practice. See block-aware room matching below. |
+| `Section Capacity` | one of this or `~Students` | **Quota.** The hard room-sizing input when present (`room.Capacity ≥ Section Capacity`). |
+| `~Students` | one of this or `Section Capacity` | Reported enrolment and the room-sizing fallback. `Students counts in the section` is also accepted as an import alias. |
+| `Room Type` | optional | classroom / pc_lab / electronics_lab / online, including legacy aliases. See block-aware matching below. |
 | `Fixed` | optional | Fixed slot for the section's first block (e.g. `"Mo 9"`). |
 | `Year` | optional | Overrides the cohort year level. |
 | `Min Working Days` | optional | Soft target for how many distinct days this section should occupy. Empty/invalid means no target; unmet days are reported in `unmet_soft` and penalized, never treated as a hard violation. |
@@ -56,7 +64,7 @@ are solver output): `ROOM`, `ROOM_CAP`, `SCHEDULE`.
 |---|:---:|---|
 | `Room` | ✓ | Room name (unique). |
 | `Capacity` | ✓ | Seats. |
-| `Type` | ✓ | Room category: `normal / lab / pc / studio`. Derived from a name token (`-PC` → `pc`, `-L` → `lab`) when seeding; editable. |
+| `Type` | ✓ | Room category: `classroom / pc_lab / electronics_lab / online`. Legacy values are migrated centrally. |
 | `Dept` | optional | **Department ownership** for a room. Semicolon-separated list of department names (e.g. `"Department of Software Engineering;Dept.of Electric&Electronics Engineering"`). When set, only sections whose `DEPT` matches one of the listed values may be assigned to this room. Empty = open to all departments (general pool). |
 
 The user must upload a classroom CSV or load the built-in sample in the Classrooms step before solving.
@@ -65,19 +73,48 @@ The user must upload a classroom CSV or load the built-in sample in the Classroo
 
 ## Shared type vocabulary
 
-Both tables speak one controlled vocabulary: **`normal / lab / pc / studio`**.
+Both tables use **classroom / pc_lab / electronics_lab / online**.
 
-- **Supply** = a room's `Type`. **Demand** = a section's `Room Type`.
-- **Matching:** when a section names an explicit `Room Type`, `feasible_rooms_for()`
-  restricts lab blocks to that exact category (`lab`, `pc`, or `studio`); if the
-  section has no lab blocks, the same demand applies to its theory/practice
-  blocks. With no explicit demand (`Room Type` empty or `normal`), lab blocks use
-  any fitting lab-family room and non-lab blocks use fitting `normal` rooms, after
-  capacity and ownership checks. A lab block is pinned only when the legacy Plan
-  route found a specific lab room.
-- A single boolean `is_lab` is insufficient: `lab ≠ pc ≠ studio` (a programming
-  course must not land in a wet lab; **Architecture studios** are their own
-  category).
+| Canonical | Accepted aliases |
+|---|---|
+| classroom | normal, derslik, sınıf, sinif |
+| pc_lab | pc, pc-lab, computer lab, computer laboratory, bilgisayar lab, bilgisayar laboratuvarı |
+| electronics_lab | lab, electronics lab, electronic lab, elektronik lab, elektronik laboratuvarı |
+| online | studio, virtual, uzaktan, çevrimiçi, cevrimici |
+
+Legacy **studio means online**, without architectural-studio semantics.
+Online applies to all section components and uses unlimited virtual supply; an
+ONLINE inventory row retains its capacity for administration but does not serialize
+courses or limit attendance. Without an uploaded virtual row, a virtual supply token
+is generated. Physical occupancy and building changes exclude virtual supply.
+
+For mixed T/P/L sections, Theory uses classroom; explicit Room Type applies to
+Practice and Lab. Theory-only sections may explicitly request a specialist category.
+Explicit classroom applies to P/L too. Explicit pc_lab and electronics_lab never
+substitute for each other. Without demand, legacy Lab accepts either lab category;
+Theory and Practice use classroom. Capacity and ownership apply to physical rooms.
+An explicit physical demand never silently becomes online when supply is too small.
+
+T, P and L produce independent #T, #P and #L blocks. Split blocks get numbered
+suffixes. Theory keeps the existing session cap; P/L use max_block_len.
+
+Assistant aliases: Assistant, Research Assistant, Research Assistant Name, Teaching
+Assistant, Teaching Assistant Name, TA, Araştırma Görevlisi, Arş. Gör., Ars. Gor.,
+Asistan. Email aliases: Research Assistant Email, Teaching Assistant Email, TA Email,
+Asistan Email. Missing assistant fields are valid. Use CSV headers for assistant
+extensions; the original positional fallback order remains unchanged.
+
+Assistant and instructor identities use normalized names only. Email columns are ignored.
+Use comma-separated names for teams;
+all listed assistants are required for P/L, none for Theory. Instructor requirements
+remain on all blocks. Equal identities across roles share hard occupancy.
+Use consistent names across rows and roles. Different people need distinct name labels.
+
+Research Assistant availability has its own School Settings hourly grids:
+Unavailable is hard; Avoid penalizes each occupied marked hour; Prefer penalizes a
+P/L block with no preferred-hour intersection. These reuse instructor weights and
+are enforced in both solver paths. Profile helpers retain assistant tiers inside
+Settings. See [SCHEDULING_GUIDE.md](SCHEDULING_GUIDE.md) for examples and manual checks.
 
 ---
 
@@ -94,10 +131,8 @@ Both tables speak one controlled vocabulary: **`normal / lab / pc / studio`**.
   back to the (mandatory) `DEPT` so every section still belongs to a cohort.
 
 **Instructor identity.**
-- `Email` present → it is the unique key (handles same-name lecturers and spelling
-  variants correctly).
-- `Email` absent → the normalized `LECTURER` name is the key, and the UI warns that
-  uniqueness is name-based.
+- The normalized `LECTURER` name is the key. Email columns are ignored.
+- Case and repeated whitespace are normalized; the `(S)` marker is removed.
 - Part-time = the `Part-time` boolean when given, else inferred from the `(S)`
   marker in the name. The full-time-only blackout applies if **any** co-instructor
   is full-time.
@@ -111,4 +146,4 @@ Both tables speak one controlled vocabulary: **`normal / lab / pc / studio`**.
 
 **What is *not* in either file** (it lives in the **School Settings** step, not the
 upload): institutional policy (day window, weights, blackouts) and per-instructor
-availability (keyed by the same email-or-name identity).
+availability (keyed by the same normalized-name identity).

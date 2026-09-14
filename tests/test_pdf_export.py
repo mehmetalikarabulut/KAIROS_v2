@@ -2,6 +2,7 @@
 from pathlib import Path
 import re
 import subprocess
+import shutil
 
 import pytest
 
@@ -18,11 +19,11 @@ def _sample_schedule():
         "assignments": [
             {"section_id": "CMPE201_01", "course_code": "CMPE201",
              "day": "Mo", "start": 9, "end": 11, "room": "A101",
-             "instructor_name": "Şükrü Çağ", "instructor_id": "scag@uni.edu",
+             "instructor_name": "Şükrü Çağ", "instructor_id": "scag@example.test",
              "cohort": "CMPE-2", "dept": "CMPE"},
             {"section_id": "CMPE305_01", "course_code": "CMPE305",
              "day": "We", "start": 13, "end": 15, "room": "A203",
-             "instructor_name": "Ayşe Yılmaz", "instructor_id": "ayilmaz@uni.edu",
+             "instructor_name": "Ayşe Yılmaz", "instructor_id": "instructor-a@example.test",
              "cohort": "CMPE-3", "dept": "CMPE"},
         ]
     }
@@ -38,7 +39,7 @@ def test_build_grid_pdf_returns_pdf_bytes():
 
 def test_build_grid_pdf_includes_room_label(tmp_path):
     from timetabling.pdf_export import build_grid_pdf
-    if subprocess.run(["which", "pdftotext"], capture_output=True).returncode != 0:
+    if shutil.which("pdftotext") is None:
         pytest.skip("pdftotext is not installed")
     pdf_path = tmp_path / "schedule.pdf"
     pdf_path.write_bytes(build_grid_pdf(_sample_schedule(), "Öğretim elemanı: Şükrü Çağ", "tr"))
@@ -85,7 +86,7 @@ def test_build_pdf_bundle_sorts_entities_naturally():
 
 def test_build_pdf_bundle_sanitizes_filename():
     from timetabling.pdf_export import _sanitize_filename
-    assert _sanitize_filename("Ahmet Acar") == "Ahmet_Acar"
+    assert _sanitize_filename("Instructor A") == "Instructor_A"
     assert _sanitize_filename("A/B:C*?") == "A_B_C"
     assert _sanitize_filename("Şükrü Çağ") == "Şükrü_Çağ"
 

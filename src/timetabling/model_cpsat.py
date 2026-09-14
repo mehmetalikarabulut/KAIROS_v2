@@ -6,7 +6,7 @@ import os
 from ortools.sat.python import cp_model
 
 from .config import Config
-from .model import Section, Block, Room, Instructor, Candidate, Assignment
+from .model import Section, Block, Room, Instructor, Candidate, Assignment, virtual_supply
 
 
 def _blackout_hours(instructors, cfg: Config):
@@ -15,27 +15,22 @@ def _blackout_hours(instructors, cfg: Config):
 
 def feasible_rooms_for(block: Block, section: Section, rooms: List[Room],
                        cfg: Config) -> List[Room]:
-    if section.is_virtual:
-        return [r for r in rooms if r.is_virtual][:1]
-    if block.needs_lab and section.lab_room:
-        return [r for r in rooms if r.room == section.lab_room]   # pinned lab room
-    has_lab_blocks = any(b.needs_lab for b in section.blocks)
-    room_type_applies = section.requires_lab_room and (block.needs_lab or not has_lab_blocks)
-    if room_type_applies:        # explicit Room Type demand
-        rt = section.required_room_type
-        if rt in ("pc", "studio", "lab"):
-            # specific category -> only rooms of exactly that type (UI rooms carry it)
-            fr = [r for r in rooms if r.is_physical and r.type == rt
-                  and r.cap >= section.students]
-        else:
-            # generic lab-family demand -> is_lab keeps the CLI path working too
-            fr = [r for r in rooms if r.is_physical and r.is_lab and r.cap >= section.students]
-    elif block.needs_lab:
-        fr = [r for r in rooms if r.is_physical and r.is_lab and r.cap >= section.students]
+    from .csv_import import normalize_room_type
+    rt = normalize_room_type(section.required_room_type) if section.required_room_type else ""
+    if section.is_virtual or rt == "online":
+        return [virtual_supply(rooms, cfg.online_room)]
+    mixed = any(b.kind in ("practice", "lab") for b in section.blocks)
+    explicit = rt and (block.kind != "theory" or not mixed)
+    if explicit:
+        wanted = {rt}
+    elif block.needs_lab or section.requires_lab_room and not mixed:
+        wanted = {"pc_lab", "electronics_lab"}
     else:
-        # Plain theory/practice belongs in ordinary classrooms. Lab-family rooms
-        # are reserved for lab blocks or explicit Room Type demand.
-        fr = [r for r in rooms if r.is_physical and not r.is_lab and r.cap >= section.students]
+        wanted = {"classroom"}
+    fr = [r for r in rooms if r.is_physical and r.type in wanted
+          and r.cap >= section.students]
+    if block.needs_lab and section.lab_room:
+        fr = [r for r in fr if r.room == section.lab_room]
     # Dept ownership: if a room declares owner dept(s), restrict to sections
     # whose department matches one of them. Empty dept = open to all.
     if fr and section.department:
@@ -67,7 +62,17 @@ def split_roomable(sections, rooms, cfg, instructors=None):
             if not feasible_rooms_for(b, s, rooms, cfg):
                 issues.append([b.block_id, "no room with sufficient capacity"])
             else:
-                issues.append([b.block_id, "block longer than daily time window"])
+                from dataclasses import replace
+                without_assistant = replace(cfg, assistant_unavailable=frozenset())
+                if s.assistants_for(b.kind) and gen_candidates(b, s, ins_list, rooms, without_assistant):
+                    names = ", ".join(s.assistant_names.get(i, i) for i in s.assistants_for(b.kind))
+                    issues.append([b.block_id, "assistant availability: " + names])
+                else:
+                    open_rooms = [replace(r, reservations=frozenset()) for r in rooms]
+                    if gen_candidates(b, s, ins_list, open_rooms, cfg):
+                        issues.append([b.block_id, "room reservations block all compatible times"])
+                    else:
+                        issues.append([b.block_id, "no compatible time window, room or human availability"])
         if issues:
             excluded.append({"section_id": s.section_id, "students": s.students,
                              "n_blocks": len(s.blocks), "issues": issues})
@@ -88,6 +93,7 @@ def gen_candidates(block: Block, section: Section, instructors: List[Instructor]
     # Per-instructor availability (same mechanism as the blackout, keyed per id).
     unavail = cfg.instr_unavailable
     sec_iids = section.instructor_ids
+    assistant_ids = section.assistants_for(block.kind)
     cands: List[Candidate] = []
     for r in feasible_rooms:
         for d in cfg.days():
@@ -97,12 +103,19 @@ def gen_candidates(block: Block, section: Section, instructors: List[Instructor]
                 if pin and h != section.fixed_start:
                     continue
                 span = range(h, h + block.length)
+                if any(day == d and h * 60 < end and (h + block.length) * 60 > start
+                       for day, start, end in r.reservations):
+                    continue
                 if any((d, hh) in closed for hh in span):
                     continue
                 if unavail and any((iid, d, hh) in unavail
                                    for iid in sec_iids for hh in span):
                     continue
-                cands.append(Candidate(block.block_id, r.room, d, h, block.length, r.cap))
+                if any((aid, d, hh) in cfg.assistant_unavailable
+                       for aid in assistant_ids for hh in span):
+                    continue
+                cands.append(Candidate(block.block_id, r.room, d, h, block.length,
+                                       0 if r.is_virtual else r.cap))
     return cands
 
 
@@ -135,7 +148,7 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
     dept_primetime_terms = defaultdict(list)
 
     compact_years = {str(y) for y in cfg.compact_cohort_years}
-    virtual_names = {r.room for r in rooms if r.is_virtual}
+    virtual_names = {r.room for r in rooms if r.is_virtual} | {virtual_supply(rooms, cfg.online_room).room}
     _avoid_pair_codes = {code for pair in cfg.avoid_pairs for code in pair}
 
     for b, s in blocks:
@@ -148,12 +161,12 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
         cands = gen_candidates(b, s, ins_list, rooms, cfg)
         if reserved:
             cands = [c for c in cands
-                     if not any((c.room, c.day, hh) in reserved
+                     if c.room in virtual_names or not any((c.room, c.day, hh) in reserved
                                 for hh in range(c.start, c.start + c.length))]
-        if reserved_instr and s.instructor_ids:
+        if reserved_instr and s.human_ids(b.kind):
             cands = [c for c in cands
                      if not any((iid, c.day, hh) in reserved_instr
-                                for iid in s.instructor_ids
+                                for iid in s.human_ids(b.kind)
                                 for hh in range(c.start, c.start + c.length))]
         cand_by_block[b.block_id] = cands
         if not cands:
@@ -187,12 +200,20 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
                     if not any((iid, c.day, hh) in cfg.instr_preferred
                                for hh in range(c.start, c.start + c.length)):
                         prefer_miss_terms.append(int(round(cfg.w_instr_prefer)) * v)
+            for aid in s.assistants_for(b.kind):
+                avoid_terms.extend(int(round(cfg.w_instr_avoid)) * v
+                                   for hh in range(c.start, c.start + c.length)
+                                   if (aid, c.day, hh) in cfg.assistant_avoid)
+                if aid in cfg.assistant_prefer_ids and not any(
+                        (aid, c.day, hh) in cfg.assistant_preferred
+                        for hh in range(c.start, c.start + c.length)):
+                    prefer_miss_terms.append(int(round(cfg.w_instr_prefer)) * v)
             if len(s.blocks) >= 2:
                 sbd[(s.section_id, b.block_id, c.day)].append(v)
             for hh in range(c.start, c.start + c.length):
                 if c.room not in virtual_names:
                     room_occ[(c.room, c.day, hh)].append(v)
-                for iid in s.instructor_ids:
+                for iid in s.human_ids(b.kind):
                     instr_occ[(iid, c.day, hh)].append(v)
                 cohort_course_occ[(s.cohort_key, s.code, c.day, hh)].append(v)
                 if s.cohort_key.rsplit("-", 1)[-1] in compact_years:
@@ -354,7 +375,7 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
                 v = x.get((b_obj.block_id, c.room, c.day, c.start))
                 if v is None:
                     continue
-                bldg = _bldg_of(c.room)
+                bldg = None if c.room in virtual_names else _bldg_of(c.room)
                 if bldg is None:
                     continue
                 for iid in s.instructor_ids:
@@ -405,8 +426,9 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
             if solver.Value(v) == 1:
                 length = next(c.length for c in cand_by_block[bid]
                               if c.room == room and c.day == day and c.start == start)
-                sid = bid.split("#")[0]
-                kind = "lab" if "#L" in bid else "theory"
+                block, section = next((b, s) for b, s in blocks if b.block_id == bid)
+                sid = section.section_id
+                kind = block.kind
                 assignments.append(Assignment(bid, sid, kind, room, day, start, start + length))
 
     stats = {

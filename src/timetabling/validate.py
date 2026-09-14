@@ -1,9 +1,10 @@
 from __future__ import annotations
 from typing import List, Dict
 from collections import defaultdict
+from dataclasses import replace
 
 from .config import Config
-from .model import Assignment, Section, Room, Instructor, Violation
+from .model import Assignment, Section, Room, Instructor, Violation, virtual_supply
 
 
 def validate(assignments: List[Assignment], sections: List[Section],
@@ -13,6 +14,9 @@ def validate(assignments: List[Assignment], sections: List[Section],
     Empty list = feasible. Set check_placement=False for Mode-B benchmarking of
     an existing schedule whose session structure differs from our derived blocks."""
     viol: List[Violation] = []
+    rooms = dict(rooms)
+    supply = virtual_supply(rooms.values(), cfg.online_room)
+    rooms.setdefault(supply.room, supply)
     sec_by_id = {s.section_id: s for s in sections}
 
     if check_placement:
@@ -36,7 +40,10 @@ def validate(assignments: List[Assignment], sections: List[Section],
         if s is None:
             continue
         room = rooms.get(a.room)
-        is_virt = room is not None and room.is_virtual
+        if room and any(day == a.day and a.start * 60 < end and a.end * 60 > start
+                        for day, start, end in room.reservations):
+            viol.append(Violation("room_reserved", f"{a.block_id}: {a.room} overlaps a room reservation"))
+        is_virt = (room is not None and room.is_virtual) or (a.room == cfg.online_room and s.is_virtual)
         if not is_virt and room is not None and room.cap < s.students:
             viol.append(Violation("capacity",
                         f"{a.block_id} in {a.room} (cap {room.cap}) < {s.students} students"))
@@ -44,22 +51,12 @@ def validate(assignments: List[Assignment], sections: List[Section],
             viol.append(Violation("lab_room",
                         f"{a.block_id} lab not in pinned {s.lab_room} (got {a.room})"))
         block = block_by_id.get(a.block_id)
-        is_lab_block = bool(block.needs_lab) if block is not None else (a.kind == "lab")
-        mixed_lab_section = has_lab_blocks.get(s.section_id, False)
-        room_type_applies = s.requires_lab_room and (is_lab_block or not mixed_lab_section)
-        if room_type_applies and not is_virt and room is not None:
-            rt = s.required_room_type
-            ok = (room.type == rt) if rt in ("pc", "studio", "lab") else room.is_lab
-            if not ok:
-                viol.append(Violation("room_type",
-                            f"{a.block_id} in {a.room} ({room.type}) but section "
-                            f"requires {rt or 'a lab'} room"))
-        elif is_lab_block and not is_virt and room is not None and not room.is_lab:
-            viol.append(Violation("room_type",
-                        f"{a.block_id} lab in ordinary room {a.room} ({room.type})"))
-        elif not is_lab_block and not is_virt and room is not None and room.is_lab:
-            viol.append(Violation("room_type",
-                        f"{a.block_id} theory/practice in lab-family room {a.room} ({room.type})"))
+        from .model_cpsat import feasible_rooms_for
+        from .model import Block
+        block = block or Block(a.block_id, a.section_id, a.kind, a.end-a.start, a.kind == "lab")
+        if not any(r.room == a.room for r in feasible_rooms_for(block, s, list(rooms.values()),
+                   replace(cfg, max_rooms_per_block=len(rooms)+1))):
+            viol.append(Violation("room_type", f"{a.block_id}: incompatible room {a.room}"))
         if s.fixed_day and s.blocks and a.block_id == s.blocks[0].block_id \
                 and (a.day != s.fixed_day or a.start != s.fixed_start):
             viol.append(Violation("fixed",
@@ -82,10 +79,13 @@ def validate(assignments: List[Assignment], sections: List[Section],
             if hit:
                 viol.append(Violation("instructor_unavailable",
                             f"{a.block_id}: {hit[0]} unavailable {a.day} {hit[1]}:00"))
+        for aid in s.assistants_for(a.kind):
+            if any((aid, a.day, h) in cfg.assistant_unavailable for h in range(a.start, a.end)):
+                viol.append(Violation("assistant_unavailable", f"{a.block_id}: {aid} unavailable"))
         for hh in range(a.start, a.end):
             if not is_virt:
                 room_occ[(a.room, a.day, hh)].append(a.block_id)
-            for iid in s.instructor_ids:
+            for iid in s.human_ids(a.kind):
                 instr_occ[(iid, a.day, hh)].append(a.block_id)
             section_occ[(a.section_id, a.day, hh)].append(a.block_id)
 
@@ -94,7 +94,7 @@ def validate(assignments: List[Assignment], sections: List[Section],
             viol.append(Violation("room", f"room {room} double-booked {day} {hh}:00 by {bids}"))
     for (iid, day, hh), bids in instr_occ.items():
         if len(set(b.split('#')[0] for b in bids)) > 1:
-            viol.append(Violation("instructor", f"instructor {iid} double-booked {day} {hh}:00 by {bids}"))
+            viol.append(Violation("instructor", f"human resource {iid} double-booked {day} {hh}:00 by {bids}"))
     for (sid, day, hh), bids in section_occ.items():
         if len(set(bids)) > 1:
             viol.append(Violation("self", f"section {sid} self-overlap {day} {hh}:00 by {bids}"))

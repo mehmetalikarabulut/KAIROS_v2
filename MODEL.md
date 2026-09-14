@@ -24,10 +24,10 @@ and where it lives (pruning, model relation, or objective).
 
 - **Fixed inputs:** each section's instructor(s), Section Capacity (quota), and T/P/L hours.
 - **Decided:** for every block of every section, a `(room, day, start-hour)`.
-- A section is split into **blocks**: undergraduate theory hours `T+P` into sessions of at most
-  `max_theory_session` h (default 2; e.g. `T=3 → 2+1`), plus lab blocks from `L` hours
-  (split when `L > max_block_len`, default 4). Graduate theory ignores
-  `max_theory_session`; `theory_session_cap_for_level()` keeps `T+P ≤ 3` as one block and
+- A section is split into **blocks**: undergraduate theory hours `T` into sessions of at most
+  `max_theory_session` h (default 2; e.g. `T=3 → 2+1`), plus independent Practice blocks from `P` and Lab blocks from `L` hours
+  (each split at max_block_len, default 4). Graduate theory ignores
+  `max_theory_session`; `theory_session_cap_for_level()` keeps `T ≤ 3` as one block and
   splits longer graduate theory at a 3 h cap so it can fit the 18:00-21:00 window. Each block
   is placed once. Both user-facing thresholds are tunable via School Settings.
 
@@ -37,13 +37,12 @@ A placement that breaks one of these is never even generated, so it cannot occur
 
 - **Capacity** — a block goes only in a room whose capacity ≥ the section's size. The virtual
   `Online` room is exempt (unlimited).
-- **Lab-room pinning / room segregation** — a lab block with a designated real lab room is
-  pinned to that room only. Without an explicit `Room Type` demand, a lab block goes to any
-  specialised room (`is_lab`, i.e. type = `lab`, `pc`, or `studio`) and a non-lab
-  theory/practice block goes only to `normal` classrooms. When a section declares an explicit
-  `Room Type` demand, that exact category applies to lab blocks; if the section has no lab
-  blocks, it applies to the theory/practice blocks instead. In a mixed `T/P + L` section,
-  non-lab blocks still use `normal` classrooms.
+- **Room matching** — physical rooms must match the block-aware category and capacity.
+  P/L use the explicit section category; Theory in a mixed section uses classroom.
+  Theory-only courses can explicitly request a specialist category. Without demand,
+  Lab retains either-lab-category compatibility and T/P use classroom. A pinned lab
+  must also pass category, capacity and ownership checks. Online applies to every
+  component and bypasses physical room allocation.
 - **Daytime window** — an undergraduate block must end by the **Day end** hour (default
   **18:00**; tunable 13–21 in School Settings) and start no earlier than the **Day start**
   hour (default **09:00**; tunable 6–12). Graduate blocks (if enabled) end by **21:00**
@@ -66,12 +65,16 @@ A placement that breaks one of these is never even generated, so it cannot occur
   per such instructor. Applied in both paths.
 - **Fixed session** — if a section declares a fixed slot, its **first block** is pinned to
   exactly that `(day, start-hour)` (its remaining blocks schedule freely).
-- **Room type** — rooms carry a categorical type (`normal / lab / pc / studio`). `feasible_rooms_for()`
-  applies an explicit `Room Type` demand only where it is relevant: to lab blocks in a section
-  that has lab blocks, or to all blocks in a section with no lab blocks. The demand is exact
-  (`pc`→`pc`, `studio`→`studio`, `lab`→`lab`); a generic lab demand falls back to any lab-family
-  room (`is_lab`). With no explicit demand, lab blocks go to specialised rooms
-  (`lab`/`pc`/`studio`) and non-lab blocks go to `normal` classrooms.
+- **Room type** — canonical classroom, pc_lab, electronics_lab, online. Legacy
+  normal/pc/lab/studio migrate respectively to those values (studio is online).
+  normalize_room_type is the shared normalization boundary. A virtual inventory row
+  is unlimited supply, not an exclusive physical room. Its administrative capacity
+  does not limit attendance or enter utilization costs. Virtual rooms never enter
+  building-change constraints, including virtual names beginning with building letters.
+- **Assistant availability** — Unavailable removes P/L candidates for any assigned
+  assistant. Theory ignores assistants. Avoid costs w_instr_avoid per marked hour;
+  Prefer costs w_instr_prefer per assistant/block without any preferred-hour overlap.
+  These soft terms apply in CP-SAT, repair construction/neighborhoods and soft polish.
 
 ### Hard constraints — enforced as model relations (across blocks)
 
@@ -80,7 +83,10 @@ A placement that breaks one of these is never even generated, so it cannot occur
 - **Room no-overlap** — at most one block occupies a physical room in any hour. (The `Online`
   virtual room is exempt.)
 - **Instructor no-overlap** — no instructor is double-booked in any hour; every co-instructor
-  of a team-taught section counts.
+  of a team-taught section counts. Required P/L assistants share the same identity
+  occupancy map, preventing assistant and cross-role double booking. Section keeps
+  separate instructor_ids and assistant_ids; human_ids(kind) supplies the deduplicated
+  union only for Practice/Lab. Decomposed reservations and repair moves honor it too.
 - **Section self no-overlap** — two blocks of the same section never overlap in time.
 ### Soft preferences — penalized in the objective (never block a schedule)
 
@@ -224,10 +230,10 @@ disabled in the UI (§8.5).
 
 **Blocks** are derived from a section's T/P/L hours:
 
-- Undergraduate theory hours $T+P$ split into sessions of at most `max_theory_session` h
+- Undergraduate theory hours $T$ split into sessions of at most `max_theory_session` h
   (default 2 h; e.g. $T{=}3 \to 2+1$). Different-day placement is a soft preference.
   Graduate theory splits at **3 h** max per
-  session: $T{+}P \le 3$ → single block unchanged; $T{+}P = 4$ → 2+2; $T{+}P = 6$ → 3+3
+  session: $T \le 3$ → single block unchanged; $T = 4$ → 2+2; $T = 6$ → 3+3
   (fits the 18:00–21:00 evening window).
 - One lab block of $L$ hours, split at `max_block_len` h (default 4 h), pinned to the
   section's real lab room.
@@ -275,10 +281,7 @@ creating* the variable rather than by adding a model row. `gen_candidates` emits
 $(r,d,h)$ only when it already satisfies:
 
 - room capacity $\mathrm{cap}_r \ge n_s$ (the virtual `Online` room is exempt — unlimited);
-- lab-room / room segregation — a lab block with a designated lab room is pinned to that
-  room only; a lab block without a designated room goes to any specialised room (`is_lab`,
-  type = `lab`/`pc`/`studio`); a theory/practice block (`not needs_lab`) is restricted to
-  `normal` classrooms only (`not is_lab` — `lab`/`pc`/`studio` rooms are never candidates);
+- block-aware room category, capacity, lab pinning and ownership as described in §0;
 - undergrad window: $h \ge \texttt{cfg.horizon\_start}$ and $h + \ell_b \le \texttt{cfg.undergrad\_end}$ (default 9–18; tunable);
 - graduate window (level > 4): $h \ge \texttt{cfg.grad\_start\_for(dept)}$ and $h + \ell_b \le \texttt{cfg.grad\_end}$ (default start 18, end fixed 21);
 - configured blackout slots (`Config.blackout`; none by default — each is universal or
@@ -286,9 +289,8 @@ $(r,d,h)$ only when it already satisfies:
 - per-instructor availability (`Config.instr_unavailable`) — a candidate is dropped if any of
   the section's instructors is marked unavailable over its span;
 - fixed-slot pin — a section's first block is restricted to its declared `(day, start)`;
-- room-type — an explicit `Room Type` emits only rooms of that exact category
-  (`pc`/`studio`/`lab`) for lab blocks, or for non-lab blocks only when the section has no lab
-  blocks; a generic lab demand falls back to any lab-family room.
+- assistant unavailable slots for required P/L assistants; all listed assistants must be free.
+- room-type matching follows §0, including unlimited online supply.
 
 Best-fit additionally caps each block to the `max_rooms_per_block` smallest fitting rooms.
 The CP-SAT monolith uses the default cap (12). The repair path widens it to **every physical
@@ -928,8 +930,8 @@ every bad field falls back to its default and the solve proceeds.
 |---|---|---|---|
 | Day start | 6–12 | `horizon_start` | earliest start hour (default 09:00) |
 | Day end | 13–21 | `undergrad_end` | undergrad end-of-day window (default 18:00) |
-| Max theory session | 1–6 | `max_theory_session` | longest single undergraduate theory session before splitting (default 2 h); graduate theory is capped at 3 h per session regardless of this setting (T+P ≤ 3 → single block; T+P > 3 → split at 3 h max) |
-| Max block length | 1–8 | `max_block_len` | longest lab block before splitting (default 4 h) |
+| Max theory session | 1–6 | `max_theory_session` | longest single undergraduate theory session before splitting (default 2 h); graduate theory is capped at 3 h per session regardless of this setting (T ≤ 3 → single block; T > 3 → split at 3 h max) |
+| Max block length | 1–8 | `max_block_len` | longest Practice/Lab block before splitting (default 4 h) |
 | Instructor-days target | No target / ≤4 / ≤3 / ≤2 | `max_instr_days` + `w_instr_days` | No target → term off (weight forced 0); ≤4/≤3/≤2 sets target and activates the instr_days soft term; **No target is the default** (opt-in). See §5.1. |
 | Saturday | checkbox | `saturday_enabled` | add Sa to the teaching week |
 | Graduate | (always True — not a UI control; hardcoded `s["include_grad"] = True` in `views/settings.py`) | `include_grad` | graduate courses are always scheduled; the field exists in `Config` and `DEFAULT_SETTINGS` but no checkbox is rendered. |
@@ -998,8 +1000,8 @@ pruning (§3).
 
 ### 8.5 Instructor availability (the "Availability" expander)
 
-Per-instructor (keyed by the **email-or-name identity** from the uploaded course list — email
-when present, else the normalized display name) a **per-hour grid** (one checkbox per teaching
+Per-instructor (keyed by the **normalized display name** from the uploaded course list;
+email columns are ignored) a **per-hour grid** (one checkbox per teaching
 hour over `[day_start, day_end)` on each active day) marks unavailable slots, stored as a
 frozenset of `(identity, day, hour)` closed slots (`availability_closed_slots`) →
 `Config.instr_unavailable`. A candidate is pruned if **any** co-instructor of the section is
@@ -1029,3 +1031,15 @@ when the upload path validates the schema defensively.
   cohort-compactness (`w_cohort_gap=10.0`, §5.2), level-ordering (`w_order`, §5.10),
   Engineering-lab preference (`w_englab`, §5.11), and the repair soft-shaping toggle (§6b).
   These are calibrated globals, not per-school policy.
+
+
+## Institution-neutral integration
+
+See [SCHEDULING_GUIDE.md](SCHEDULING_GUIDE.md) for identity, single-column room interpretation,
+compatibility tradeoffs, examples and manual verification. Assistant profile maps
+are stored in Settings under assistant_availability, assistant_availability_avoid
+and assistant_availability_prefer; build_config exposes separate assistant_* sets.
+Profiles keep their existing four-element return contract. Instructor-only workload
+and day metrics remain unchanged. Hard occupancy is block-aware in every solver.
+CSV/JSON append assistant_id, assistant_name, room_type and is_online; block_kind
+is theory/practice/lab. PDF and results show assistants on P/L only.

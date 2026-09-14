@@ -3,7 +3,7 @@ from typing import List, Dict, Tuple, Callable
 from collections import defaultdict
 
 from .config import Config
-from .model import Section, Room, Instructor, Assignment
+from .model import Section, Room, Instructor, Assignment, virtual_supply
 from .model_cpsat import build_and_solve
 
 
@@ -21,7 +21,8 @@ def solve_decomposed(sections: List[Section], rooms: List[Room],
 
     reserved: set = set()
     reserved_instr: set = set()
-    sec_instr = {s.section_id: s.instructor_ids for s in sections}
+    sec_by_id = {s.section_id: s for s in sections}
+    virtual = {r.room for r in rooms if r.is_virtual} | {virtual_supply(rooms, cfg.online_room).room}
     all_assigns: List[Assignment] = []
     per_group = []
     for g in order:
@@ -29,8 +30,9 @@ def solve_decomposed(sections: List[Section], rooms: List[Room],
                                 reserved=reserved, reserved_instr=reserved_instr)
         for x in a:
             for hh in range(x.start, x.end):
-                reserved.add((x.room, x.day, hh))
-                for iid in sec_instr.get(x.section_id, []):
+                if x.room not in virtual:
+                    reserved.add((x.room, x.day, hh))
+                for iid in sec_by_id[x.section_id].human_ids(x.kind):
                     reserved_instr.add((iid, x.day, hh))
         all_assigns.extend(a)
         # st always carries status_name/unplaced/wall_time: each group is solved by

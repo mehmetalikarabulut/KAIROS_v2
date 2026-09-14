@@ -21,7 +21,7 @@ def test_cli_solves_uploaded_csvs_without_period(tmp_path, monkeypatch):
     courses = tmp_path / "courses.csv"
     courses.write_text(
         "Course Code,Course Name,Dept,Section No,Instructor Name,Instructor Email,T,P,L,Section Capacity\n"
-        "CMPE 101,Intro,Engineering,01,Dr A,a@x.edu,2,0,0,20\n",
+        "CMPE 101,Intro,Engineering,01,Dr A,a@example.test,2,0,0,20\n",
         encoding="utf-8",
     )
     rooms = tmp_path / "rooms.csv"

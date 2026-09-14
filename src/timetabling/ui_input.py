@@ -3,7 +3,7 @@ import re
 from typing import List, Dict, Tuple
 
 from .config import Config, normalize_parallel_policy
-from .model import Section, Room, Instructor
+from .model import Section, Room, Instructor, virtual_supply
 from .derive import course_level, blocks_from_tpl, theory_session_cap_for_level
 from .textnorm import parse_int
 from .csv_import import normalize_room_type
@@ -70,7 +70,7 @@ def is_part_time(instructor_name: str) -> bool:
 
 
 def parse_emails(s: str) -> List[str]:
-    return [e.strip() for e in str(s or "").split(",") if e.strip()]
+    return [e.strip().lower() for e in str(s or "").split(",") if e.strip()]
 
 
 def _truthy(v) -> bool:
@@ -78,20 +78,11 @@ def _truthy(v) -> bool:
 
 
 def _room_type_demand(v) -> str:
-    """Required room category from a section's Room Type cell: '' (normal) |
-    lab | pc | studio. Shares the room inventory's type vocabulary."""
-    s = str(v or "").strip().lower()
-    if "pc" in s or "bilgisayar" in s:
-        return "pc"
-    if "studio" in s or "studyo" in s or "stüdyo" in s:
-        return "studio"
-    if "lab" in s or "laboratuvar" in s:
-        return "lab"
-    return ""
+    return normalize_room_type(v) if str(v or "").strip() else ""
 
 
 def normalize_name(name) -> str:
-    """Stable instructor key from a display name (fallback when no email):
+    """Stable human-resource key from a display name:
     drop the (S) part-time marker, collapse whitespace, lowercase."""
     s = str(name or "").replace("(S)", " ")
     return re.sub(r"\s+", " ", s).strip().lower()
@@ -170,17 +161,10 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
         L = parse_int(r.get("L"), 0)
         if (T + P + L) == 0:
             report["missing_hours"] += 1
-        emails = parse_emails(r.get("Instructor Email", ""))
-        names = [n.strip() for n in str(r.get("Instructor Name", "")).split(",")]
-        if emails:
-            instructor_ids = emails
-        else:
-            report["missing_email"] += 1
-            instructor_ids = [normalize_name(n) for n in names if n.strip()]
         # Section Capacity (quota) is the hard size; ~Students (actual) is the fallback.
         students = (parse_int(r.get("Section Capacity"), 0)
                     or parse_int(r.get("~Students"), 0) or 1)
-        rtype = _room_type_demand(r.get("Room Type"))       # "" | lab | pc | studio
+        rtype = _room_type_demand(r.get("Room Type"))
         fixed_day, fixed_start = parse_fixed(r.get("Fixed"))
         min_days = parse_int(r.get("Min Working Days"), 0)
         min_days = min(max(min_days, 0), len(cfg.days()))
@@ -189,13 +173,16 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
             section_id=sid, period=period, code=code,
             name=str(r.get("Course Name", "")).strip(),
             level=level, dept_code=dept, department=department,
-            cohort_key=cohort, instructor_ids=instructor_ids, students=students,
+            cohort_key=cohort, instructor_ids=list(people_for_row(r, "Instructor")), students=students,
             T=T, P=P, L=L, Cr=(T + P + L), category="",
             blocks=blocks_from_tpl(sid, T, P, L, T + P + L,
                                    cfg.max_block_len,
                                    theory_session_cap_for_level(T, P, T + P + L, level, cfg)),
             plan_room="",
-            requires_lab_room=(rtype in ("lab", "pc", "studio")),
+            requires_lab_room=(rtype in ("pc_lab", "electronics_lab")),
+            is_virtual=(rtype == "online"),
+            assistant_ids=list(people_for_row(r, "Assistant")),
+            assistant_names=people_for_row(r, "Assistant"),
             required_room_type=rtype,
             fixed_day=fixed_day, fixed_start=fixed_start,
             min_working_days=min_days,
@@ -203,22 +190,28 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
     return sections, report
 
 
+def people_for_row(row: Dict, role: str) -> Dict[str, str]:
+    names = [n.strip() for n in str(row.get(f"{role} Name", "") or "").split(",")]
+    pairs = {}
+    for name in names:
+        key = normalize_name(name)
+        if key:
+            pairs[key] = name
+    return pairs
+
+
+def build_assistants_from_courselist(rows: List[Dict]) -> Dict[str, str]:
+    return {key: name for row in rows for key, name in people_for_row(row, "Assistant").items()}
+
+
 def build_instructors_from_courselist(rows: List[Dict]) -> Dict[str, Instructor]:
     out: Dict[str, Instructor] = {}
     for r in rows:
-        emails = parse_emails(r.get("Instructor Email", ""))
-        names = [n.strip() for n in str(r.get("Instructor Name", "")).split(",")]
         department = str(r.get("Dept", "")).strip()
         # optional Part-time column overrides the "(S)" marker; absent -> fall back to "(S)"
         pt = r.get("Part-time")
         explicit_pt = _truthy(pt) if (pt is not None and str(pt).strip() != "") else None
-        # Identity key = email when present; else the normalized display name.
-        if emails:
-            pairs = [(email, names[i] if i < len(names) else (names[0] if names else ""))
-                     for i, email in enumerate(emails)]
-        else:
-            pairs = [(normalize_name(n), n) for n in names if n.strip()]
-        for key, name in pairs:
+        for key, name in people_for_row(r, "Instructor").items():
             if key in out:
                 continue
             part_time = explicit_pt if explicit_pt is not None else is_part_time(name)
@@ -239,10 +232,11 @@ def build_rooms_from_ui(classroom_rows: List[Dict], cfg: Config) -> Dict[str, Ro
                                     else r.get("Lab"), name)
         dept = str(r.get("Dept", "") or "").strip()
         rooms[name] = Room(room=name, cap=parse_int(cap_raw, 0) or 0,
-                           is_lab=(rtype != "normal"), is_physical=True,
-                           is_virtual=False, type=rtype, dept=dept)
-    rooms[cfg.online_room] = Room(room=cfg.online_room, cap=10_000, is_lab=False,
-                                  is_physical=False, is_virtual=True, type="normal")
+                           is_lab=(rtype in ("pc_lab", "electronics_lab")), is_physical=(rtype != "online"),
+                           is_virtual=(rtype == "online"), type=rtype, dept=dept)
+    if not any(r.is_virtual for r in rooms.values()):
+        supply = virtual_supply(rooms.values(), cfg.online_room)
+        rooms[supply.room] = supply
     return rooms
 
 
@@ -266,7 +260,6 @@ def validate_courselist(rows: List[Dict]) -> List[Tuple[str, Dict]]:
     zero_hours = sum(1 for r in rows
                      if (parse_int(r.get("T"), 0) + parse_int(r.get("P"), 0)
                          + parse_int(r.get("L"), 0)) == 0)
-    blank_email = sum(1 for r in rows if not parse_emails(r.get("Instructor Email", "")))
     bad_code = sum(1 for r in rows
                    if cohort_from_code(r.get("Course Code", ""))[0] == "UNK"
                    and not str(r.get("Dept", "")).strip())   # Dept column remedies a bad code
@@ -274,8 +267,6 @@ def validate_courselist(rows: List[Dict]) -> List[Tuple[str, Dict]]:
     part_time = sum(1 for r in rows if is_part_time(r.get("Instructor Name", "")))
     if zero_hours:
         warns.append(("warn_zero_hours", {"n": zero_hours}))
-    if blank_email:
-        warns.append(("warn_blank_email", {"n": blank_email}))
     if bad_code:
         warns.append(("warn_bad_code", {"n": bad_code}))
     if bad_level:

@@ -4,7 +4,7 @@ import streamlit as st
 
 from timetabling.ui_app import track_event
 from timetabling.ui_input import (validate_courselist, cohort_from_code,
-                                  parse_emails, COURSELIST_ERROR_CODES)
+                                  people_for_row, COURSELIST_ERROR_CODES)
 from timetabling.ui_style import (kpi_chips_html, eyebrow_html, data_table_html,
                                   import_preview_html)
 from timetabling.i18n import t
@@ -26,7 +26,7 @@ def render(lang: str) -> None:
              for r in rows if r.get("Course Code")}
     instr = set()
     for r in rows:
-        instr.update(parse_emails(r.get("Instructor Email", "")))
+        instr.update(people_for_row(r, "Instructor"))
     st.markdown(kpi_chips_html([
         (t("kpi_sections", lang), str(len(rows)), ""),
         (t("kpi_courses", lang), str(n_courses), ""),
@@ -53,7 +53,7 @@ def render(lang: str) -> None:
                          valid=report["stats"]["valid"]))
         st.markdown(import_preview_html(report, lang), unsafe_allow_html=True)
     else:
-        df = pd.DataFrame(rows)
+        df = pd.DataFrame(rows).drop(columns=["Instructor Email", "Assistant Email"], errors="ignore")
         st.markdown(
             data_table_html(list(df.columns), df.astype(str).values.tolist(),
                             max_height=340, numeric=_NUMERIC_COLS),

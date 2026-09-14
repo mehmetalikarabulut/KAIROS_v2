@@ -10,7 +10,8 @@ from timetabling.ui_style import (
     kpi_chips_html, success_banner_html, upload_cta_html, upload_error_html,
 )
 from timetabling.textnorm import parse_int
-from timetabling.i18n import t
+from timetabling.i18n import t, ROOM_TYPE_LABELS
+from timetabling.csv_import import normalize_room_type
 
 _SAMPLE = os.path.join(os.path.dirname(__file__), "..", "assets", "sample_classrooms.csv")
 
@@ -24,7 +25,7 @@ def render(lang: str) -> None:
     rooms = st.session_state["classrooms"]
     caps = [parse_int(r.get("Capacity") or r.get("Cap"), 0) for r in rooms]
     labs = sum(1 for r in rooms
-               if str(r.get("Type", "")).strip().lower() not in ("", "normal"))
+               if normalize_room_type(r.get("Type", "")) in ("pc_lab", "electronics_lab"))
     st.markdown(kpi_chips_html([
         (t("kpi_rooms", lang), str(len(rooms)), ""),
         (t("kpi_labs", lang), str(labs), ""),
@@ -45,7 +46,7 @@ def render(lang: str) -> None:
             # Its keyed container (.st-key-cr_change) is a flex item that sizes to
             # its label and sits left, so it must be forced full-width + flex-center
             # while the inner stButton + button are pinned back to content width so
-            # the button hugs its label (see the button-centering rule in CLAUDE.md).
+            # the button hugs its label.
             st.markdown(
                 "<style>"
                 ".st-key-cr_change{display:flex!important;justify-content:center!important;width:100%!important;}"
@@ -105,7 +106,7 @@ def render(lang: str) -> None:
         st.markdown(
             data_table_html(
                 _cr,
-                [["A216", "25", "normal", ""], ["A311-PC-L", "99", "pc", t("sample_cr_dept", lang)]],
+                [["A216", "25", "classroom", ""], ["A311-PC-L", "99", "pc_lab", t("sample_cr_dept", lang)]],
                 max_height=160, numeric=(_cr[1],)),
             unsafe_allow_html=True)
 
@@ -126,8 +127,58 @@ def render(lang: str) -> None:
             data_table_html(
                 _cr,
                 [[r.get("Room", ""), r.get("Capacity", r.get("Cap", "")),
-                  r.get("Type", ""), r.get("Dept", ""), "ok"] for r in rooms],
+                  ROOM_TYPE_LABELS[lang][normalize_room_type(r.get("Type", ""))], r.get("Dept", ""), "ok"] for r in rooms],
                 max_height=300, numeric=(_cr[1],),
                 pill_cols=(_cr[4],),
                 pill_labels={"ok": t("import_status_ok", lang)}),
             unsafe_allow_html=True)
+
+    _reservation_inputs(lang, rooms)
+
+
+def _reservation_inputs(lang, rooms):
+    from timetabling.room_reservations import parse_room_reservations, apply_room_reservations
+    from timetabling.ui_input import build_rooms_from_ui
+    from timetabling.config import Config
+
+    def label(en, tr):
+        return tr if lang == "tr" else en
+
+    st.subheader(label("Room reservations", "Derslik rezervasyonları"))
+    st.caption(label(
+        "Weekly reservations block a physical room for every department. Sessions may end at Start or begin at End. Blank Room rows are ignored. Dept is optional information.",
+        "Haftalık rezervasyonlar dersliği tüm bölümler için kapatır. Dersler Start saatinde bitebilir veya End saatinde başlayabilir. Room boşsa satır yok sayılır. Dept isteğe bağlı bilgidir."))
+    from pathlib import Path
+    asset_dir = Path(__file__).resolve().parent.parent / "assets"
+    template = (asset_dir / "example_room_reservations.csv").read_text(encoding="utf-8")
+    st.download_button(label("Download reservation CSV example", "Rezervasyon CSV örneğini indir"),
+                       template, "room_reservations.csv", "text/csv", key="reservation_download")
+    st.download_button(label("Download Excel input template", "Excel giriş şablonunu indir"),
+                       (asset_dir / "kairos_input_template.xlsx").read_bytes(), "kairos_input_template.xlsx",
+                       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="reservation_excel")
+    with st.form("room_reservation_form"):
+        up = st.file_uploader(label("Reservation CSV", "Rezervasyon CSV"), type=["csv"], key="reservation_upload")
+        load = st.form_submit_button(label("Load reservations (replace current list)", "Rezervasyonları yükle (listeyi değiştir)"))
+    if load:
+        try:
+            if up is None:
+                raise ValueError(label("Choose a reservation CSV first.", "Önce rezervasyon CSV dosyasını seçin."))
+            up.seek(0)
+            parsed = parse_room_reservations(read_raw(up))
+            apply_room_reservations(build_rooms_from_ui(rooms, Config()), parsed)
+            st.session_state["room_reservations"] = parsed
+            st.session_state.pop("room_reservation_error", None)
+            st.success(label(f"Loaded {len(parsed)} reservations.", f"{len(parsed)} rezervasyon yüklendi."))
+        except ValueError as exc:
+            st.session_state["room_reservation_error"] = str(exc)
+    if st.button(label("Clear reservations", "Rezervasyonları temizle"), key="reservation_clear"):
+        st.session_state["room_reservations"] = []
+        st.session_state.pop("room_reservation_error", None)
+        st.rerun()
+    if st.session_state.get("room_reservation_error"):
+        st.error(st.session_state["room_reservation_error"])
+    reservations = st.session_state.get("room_reservations", [])
+    if reservations:
+        columns = ["Room", "Dept", "Day", "Start", "End"]
+        st.markdown(data_table_html(columns, [[r.get(c, "") for c in columns] for r in reservations],
+                                    max_height=300), unsafe_allow_html=True)

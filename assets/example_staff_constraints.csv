@@ -1,0 +1,4 @@
+Role,Name,Constraint,Day,Start,End
+Instructor,Instructor A,Unavailable,Mo,09:00,11:00
+Instructor,Instructor A,Prefer,Tu,13:00,15:00
+Assistant,Assistant A,Avoid,We,10:00,12:00

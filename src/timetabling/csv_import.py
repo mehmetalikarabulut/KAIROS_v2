@@ -23,14 +23,14 @@ COURSE_COL_MAP: Dict[str, List[str]] = {
     "Course Name":    ["course_name", "name", "ders_adi", "ad", "title", "course_title"],
     "Section No":     ["section_no", "section", "sube", "sec", "sec_no"],
     "T":              ["t", "theory", "teori"],
-    "P":              ["p", "practice", "uygulama"],
+    "P":              ["p", "u", "practice", "uygulama"],
     "L":              ["l", "lab", "laboratuvar", "laboratory"],
     "Instructor Name":  ["instructor_name", "instructor", "lecturer_name",
                          "lecturer", "ogretim_uyesi", "hoca"],
     "Instructor Email": ["instructor_email", "email", "e_mail", "mail", "eposta",
                          "lecturer_email"],
     "~Students":      ["students", "ogrenci", "ogrenci_sayisi", "booked_cap",
-                       "enrolled", "kayitli", "size", "approx_students"],
+                       "enrolled", "kayitli", "size", "approx_students", "students_counts_in_the_section"],
     # Section Capacity = the quota (hard room-sizing input). ~Students = actual /
     # expected enrolment (optional, soft). Distinct fields: SECT_CAP vs BOOKED_CAP.
     # Kept after ~Students so the original 9-column positional layout is unchanged.
@@ -49,10 +49,17 @@ COURSE_COL_MAP: Dict[str, List[str]] = {
     "Parallel Policy": ["parallel_policy", "parallel", "parallel_coord",
                         "parallel_coordination", "sube_politikasi",
                         "paralel_sube", "paralel_sube_politikasi"],
+    "Assistant Name": ["assistant", "assistant_name", "research_assistant",
+                       "research_assistant_name", "teaching_assistant",
+                       "teaching_assistant_name", "ta", "arastirma_gorevlisi",
+                       "ars_gor", "asistan"],
+    "Assistant Email": ["assistant_email", "research_assistant_email",
+                        "teaching_assistant_email", "ta_email", "asistan_email"],
 }
 
 # Positional fallback order == the canonical column order.
-COURSE_POSITIONAL = tuple(COURSE_COL_MAP.keys())
+COURSE_POSITIONAL = tuple(k for k in COURSE_COL_MAP if not k.startswith("Assistant "))
+COURSE_FIELDS = tuple(COURSE_COL_MAP)
 
 _SEP = re.compile(r"[\s#\-./~]+")
 # Turkish-aware lowercasing so "Şube"/"Öğrenci" normalize predictably.
@@ -131,7 +138,9 @@ def map_columns(raw_rows: List[List], col_map: Dict[str, List[str]] = COURSE_COL
             else:
                 col_index[canonical] = -1
         else:
-            col_index[canonical] = pos
+            col_index[canonical] = pos if col_map is not COURSE_COL_MAP or canonical in COURSE_POSITIONAL else -1
+            if col_index[canonical] < 0:
+                continue
             detected.append({"field": canonical, "label": f"column {pos + 1}",
                              "source": "positional"})
 
@@ -189,7 +198,7 @@ def parse_courselist(raw_rows: List[List], existing: Sequence[Dict] = ()) -> Dic
     for i, raw in enumerate(m["data_rows"]):
         if _is_blank(raw):
             continue
-        rec = {canonical: _cell(raw, ci.get(canonical)) for canonical in COURSE_POSITIONAL}
+        rec = {canonical: _cell(raw, ci.get(canonical)) for canonical in COURSE_FIELDS}
         rec["row_num"] = i + row_offset
 
         code = rec["Course Code"]
@@ -240,7 +249,7 @@ def parse_courselist(raw_rows: List[List], existing: Sequence[Dict] = ()) -> Dic
 
 def ok_rows(parsed: Dict) -> List[Dict]:
     """Clean canonical course dicts for the ``ok`` rows (drop bookkeeping fields)."""
-    return [{c: r[c] for c in COURSE_POSITIONAL}
+    return [{c: r[c] for c in COURSE_FIELDS}
             for r in parsed["rows"] if r["status"] == "ok"]
 
 
@@ -261,41 +270,39 @@ CLASSROOM_POSITIONAL = tuple(CLASSROOM_COL_MAP.keys())
 
 # Room-type vocabulary (shared with sections' Room Type demand). Lab-family =
 # everything that is not a plain classroom.
-ROOM_TYPES = ("normal", "lab", "pc", "studio")
+ROOM_TYPES = ("classroom", "pc_lab", "online", "electronics_lab")
 # Legacy truthy tokens kept so an old boolean Lab column still reads as lab-family.
 _LAB_TRUTHY = {"1", "true", "yes", "y", "x", "lab", "✓", "evet", "var"}
 
 
 def room_type_from_name(name: str) -> str:
-    """Categorical room type derived from a room-name token: ``-PC`` -> ``pc``,
-    ``-L`` -> ``lab``, ``-STD``/``-STU`` -> ``studio``, else ``normal``."""
-    n = str(name or "")
+    n = str(name or "").upper()
     if "-PC" in n:
-        return "pc"
-    if "-STD" in n or "-STU" in n:
-        return "studio"
-    if "-L" in n:
-        return "lab"
-    return "normal"
+        return "pc_lab"
+    if "-STD" in n or "-STU" in n or n == "ONLINE":
+        return "online"
+    return "electronics_lab" if "-L" in n else "classroom"
 
 
 def normalize_room_type(value: str, name: str = "") -> str:
-    """Map an explicit Type cell to the vocabulary; fall back to the name token.
-    Accepts categorical strings, TR/EN synonyms, and the legacy boolean Lab cell."""
-    s = str(value or "").strip().lower()
+    """Single migration/alias boundary for both demand and supply."""
+    s = normalize_header(value)
     if not s:
         return room_type_from_name(name)
-    if "pc" in s or "bilgisayar" in s:
-        return "pc"
-    if "studio" in s or "studyo" in s or "stüdyo" in s:
-        return "studio"
-    if s in ROOM_TYPES:
-        return s
-    if "lab" in s or "laboratuvar" in s:
-        return "lab"
-    if s in _LAB_TRUTHY:          # legacy boolean Lab column -> generic lab
-        return "lab"
-    return "normal"
+    aliases = {
+        "classroom": ("classroom", "normal", "derslik", "sinif", "0", "false", "no"),
+        "pc_lab": ("pc", "pc_lab", "computer_lab", "computer_pc_lab", "computer_laboratory",
+                   "bilgisayar_lab", "bilgisayar_laboratuvari"),
+        "online": ("online", "virtual", "uzaktan", "cevrimici", "studio", "studyo"),
+        "electronics_lab": ("lab", "electronics_lab", "electronic_lab",
+                            "elektronik_lab", "elektronik_laboratuvari", "laboratory"),
+    }
+    for canonical, values in aliases.items():
+        if s in values:
+            return canonical
+    if s in _LAB_TRUTHY:
+        return "electronics_lab"
+    return "classroom"
 
 
 def parse_classrooms(raw_rows: List[List], existing: Sequence[Dict] = ()) -> Dict:
@@ -305,7 +312,7 @@ def parse_classrooms(raw_rows: List[List], existing: Sequence[Dict] = ()) -> Dic
     stat badges.
 
     Columns: ``Room`` (required), ``Capacity`` (int; blank -> 0), ``Type``
-    (categorical ``normal/lab/pc/studio`` from a Type column, else derived from
+    (canonical ``classroom/pc_lab/electronics_lab/online`` from a Type column, else derived from
     the room name's ``-PC`` / ``-L`` / ``-STD`` token). Duplicate room names
     (in-file or vs ``existing``) are flagged.
     """

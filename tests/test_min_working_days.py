@@ -25,7 +25,7 @@ def _quiet_cfg(**kwargs):
 def test_cpsat_prefers_distinct_days_for_section_min_working_days():
     cfg = _quiet_cfg()
     rows = [{"Course Code": "X 101", "Course Name": "Split", "Dept": "F",
-             "Section No": "01", "Instructor Name": "A", "Instructor Email": "a@x.edu",
+             "Section No": "01", "Instructor Name": "A", "Instructor Email": "a@example.test",
              "T": "1", "P": "0", "L": "1", "Section Capacity": "10",
              "Min Working Days": "2"}]
     sections, _ = build_sections_from_courselist(rows, "001", cfg)
@@ -34,7 +34,7 @@ def test_cpsat_prefers_distinct_days_for_section_min_working_days():
         "LAB1": Room("LAB1", 20, True, True, type="lab"),
         "Online": Room("Online", 10_000, False, False, is_virtual=True),
     }
-    instructors = {"a@x.edu": Instructor("a@x.edu", "A", True, "F")}
+    instructors = {"a@example.test": Instructor("a@example.test", "A", True, "F")}
     mark_virtual(sections, rooms, cfg)
 
     res = run_pipeline("001", sections, rooms, instructors, cfg, solver="cpsat")
@@ -47,7 +47,7 @@ def test_cpsat_prefers_distinct_days_for_section_min_working_days():
 def test_pipeline_reports_unmet_section_min_working_days():
     cfg = _quiet_cfg()
     rows = [{"Course Code": "X 101", "Course Name": "Single", "Dept": "F",
-             "Section No": "01", "Instructor Name": "A", "Instructor Email": "a@x.edu",
+             "Section No": "01", "Instructor Name": "A", "Instructor Email": "a@example.test",
              "T": "1", "P": "0", "L": "0", "Section Capacity": "10",
              "Min Working Days": "2"}]
     sections, _ = build_sections_from_courselist(rows, "001", cfg)
@@ -55,7 +55,7 @@ def test_pipeline_reports_unmet_section_min_working_days():
         "R1": Room("R1", 20, False, True),
         "Online": Room("Online", 10_000, False, False, is_virtual=True),
     }
-    instructors = {"a@x.edu": Instructor("a@x.edu", "A", True, "F")}
+    instructors = {"a@example.test": Instructor("a@example.test", "A", True, "F")}
     mark_virtual(sections, rooms, cfg)
 
     res = run_pipeline("001", sections, rooms, instructors, cfg, solver="cpsat")

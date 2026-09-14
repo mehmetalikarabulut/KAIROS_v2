@@ -5,20 +5,20 @@ from patch_index_html import (MEASUREMENT_ID, PAGE_DESCRIPTION, PAGE_TITLE,
 def test_patch_html_inserts_snippet_before_head_close():
     html = "<html><head><title>x</title></head><body></body></html>"
 
-    patched = patch_html(html, MEASUREMENT_ID)
+    patched = patch_html(html, "G-EXAMPLE123")
 
-    assert MEASUREMENT_ID in patched
-    assert patched.index(MEASUREMENT_ID) < patched.index("</head>")
+    assert "G-EXAMPLE123" in patched
+    assert patched.index("G-EXAMPLE123") < patched.index("</head>")
 
 
 def test_patch_html_is_idempotent():
     html = "<html><head><title>x</title></head><body></body></html>"
-    once = patch_html(html, MEASUREMENT_ID)
+    once = patch_html(html, "G-EXAMPLE123")
 
-    twice = patch_html(once, MEASUREMENT_ID)
+    twice = patch_html(once, "G-EXAMPLE123")
 
     assert once == twice
-    assert twice.count(MEASUREMENT_ID) == 2  # once in the src=, once in gtag('config', ...)
+    assert twice.count("G-EXAMPLE123") == 2  # once in the src=, once in gtag('config', ...)
 
 
 def test_patch_html_uses_given_measurement_id():
@@ -27,7 +27,12 @@ def test_patch_html_uses_given_measurement_id():
     patched = patch_html(html, "G-TESTID123")
 
     assert "G-TESTID123" in patched
-    assert MEASUREMENT_ID not in patched
+    assert "G-EXAMPLE123" not in patched
+
+
+def test_analytics_disabled_without_explicit_account():
+    html = "<html><head></head><body></body></html>"
+    assert patch_html(html, "") == html
 
 
 def test_patch_seo_replaces_title_and_adds_description():
@@ -72,7 +77,7 @@ def test_main_patches_index_and_writes_static_files(tmp_path):
     main(str(static_dir))
 
     html = (static_dir / "index.html").read_text(encoding="utf-8")
-    assert MEASUREMENT_ID in html
+    assert "googletagmanager" not in html
     assert PAGE_DESCRIPTION in html
     assert "Sitemap:" in (static_dir / "robots.txt").read_text(encoding="utf-8")
     assert "<urlset" in (static_dir / "sitemap.xml").read_text(encoding="utf-8")

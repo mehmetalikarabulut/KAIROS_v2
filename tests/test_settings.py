@@ -226,13 +226,13 @@ def test_quality_modes_map_to_soft_polish_budget():
 def test_availability_labels_keyed_by_email_or_name():
     from views.settings import _email_labels
     courses = [
-        {"Instructor Name": "A. Yilmaz", "Instructor Email": "a@x.edu"},
-        {"Instructor Name": "Mustafa Yuksel (S)", "Instructor Email": ""},
+        {"Instructor Name": "Instructor A", "Instructor Email": "a@example.test"},
+        {"Instructor Name": "Instructor C (S)", "Instructor Email": ""},
     ]
     labels, label_to_id, _id_to_name = _email_labels(courses)
     ids = set(label_to_id.values())
-    assert "a@x.edu" in ids                 # email identity when present
-    assert "mustafa yuksel" in ids          # normalized-name identity when no email
+    assert "instructor a" in ids                      # names are used even with email present
+    assert "instructor c" in ids          # normalized-name identity when no email
 
 
 def test_build_config_ref_schedule_default_is_empty():

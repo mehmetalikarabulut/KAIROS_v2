@@ -11,8 +11,9 @@ from timetabling.ui_style import eyebrow_html
 from timetabling.i18n import t, DAY_LABELS, DAY_LABELS_FULL
 from timetabling.settings import (profile_to_json, profile_from_json, _LEGACY_LEVEL,
                                   QUALITY_MODES)
-from timetabling.ui_input import normalize_name, grad_dept_codes, grad_dept_labels
+from timetabling.ui_input import normalize_name, grad_dept_codes, grad_dept_labels, people_for_row
 from timetabling.config import PARALLEL_POLICIES
+from timetabling.constraints_csv import export_constraints, parse_constraints_csv, merge_constraints
 
 _LEVELS = ("low", "medium", "high")
 _OPTIONAL_LEVELS = ("off", "low", "medium", "high")
@@ -39,36 +40,16 @@ def _hour_select(col, label: str, lo: int, hi: int, cur, key: str, help: str = "
 
 
 def _emails(courses) -> list:
-    """Unique instructor emails from the uploaded course list (availability is keyed by email)."""
-    seen = []
-    for r in courses:
-        for e in str(r.get("Instructor Email", "")).split(","):
-            e = e.strip()
-            if e and e not in seen:
-                seen.append(e)
-    return sorted(seen)
+    """Legacy helper name: return normalized instructor names."""
+    return sorted({key for r in courses for key in people_for_row(r, "Instructor")})
 
 
-def _email_labels(courses) -> tuple[list[str], dict[str, str], dict[str, str]]:
-    """Return (display_labels, label→email map, email→name map) for the instructor selectbox.
-
-    Display format: "Name (email)" when a name is available, else just "email".
-    Availability is keyed by email, so the map lets callers recover the email from
-    the selected label without parsing.
-    """
-    # Identity key = email when present, else the normalized display name — the
-    # same key build_sections uses for instructor_ids, so availability matches.
+def _email_labels(courses, role="Instructor") -> tuple[list[str], dict[str, str], dict[str, str]]:
+    """Return display labels and normalized-name identity maps for availability."""
     id_to_name: dict[str, str] = {}
     for r in courses:
-        emails = [e.strip() for e in str(r.get("Instructor Email", "")).split(",") if e.strip()]
-        names = [n.strip() for n in str(r.get("Instructor Name", "")).split(",")]
-        if emails:
-            for i, email in enumerate(emails):
-                id_to_name.setdefault(email, names[i] if i < len(names) else "")
-        else:
-            for n in names:
-                if n.strip():
-                    id_to_name.setdefault(normalize_name(n), n.strip())
+        for key, name in people_for_row(r, role).items():
+            id_to_name.setdefault(key, name)
 
     labels: list[str] = []
     label_to_email: dict[str, str] = {}
@@ -113,9 +94,10 @@ def render(lang: str) -> None:
                 unsafe_allow_html=True)
     st.caption(t("set_caption", lang))
     s = st.session_state["settings"]
-    tab_pol, tab_avl, tab_con, tab_par = st.tabs([
+    tab_pol, tab_avl, tab_asst, tab_con, tab_par = st.tabs([
         t("set_tab_policy", lang),
         t("set_tab_avail", lang),
+        t("set_tab_assistant", lang),
         t("set_tab_conflicts", lang),
         t("set_tab_parallel", lang),
     ])
@@ -123,20 +105,63 @@ def render(lang: str) -> None:
         _policy(lang, s)
     with tab_avl:
         _availability(lang)
+    with tab_asst:
+        _availability(lang, "Assistant")
     with tab_con:
         _avoid_pairs(lang, s)
     with tab_par:
         _parallel_policies(lang, s)
+    _constraints_csv(lang)
     # School-profile import/export is disabled: an out-of-spec JSON upload can crash
     # profile_from_json, and the feature has no clear use yet. Re-enable once the
     # upload path validates the schema defensively. Keep _profile() for that.
     # _profile(lang)
 
 
+def _constraints_csv(lang: str) -> None:
+    """CSV backup/load UI. Parsing is transactional: state changes only after validation."""
+    tr = lang == "tr"
+    title = "Öğretim elemanı ve asistan kısıtları CSV" if tr else "Instructor and assistant constraints CSV"
+    description = ("Bu dosya yalnızca kişisel uygunluk tercihlerini içerir; oda rezervasyonları, "
+                   "genel politika ve ders çakışma kurallarını içermez." if tr else
+                   "This file contains personal availability only; it does not contain room reservations, "
+                   "institutional policy, or course-conflict rules.")
+    keys = ("availability", "availability_avoid", "availability_prefer",
+            "assistant_availability", "assistant_availability_avoid", "assistant_availability_prefer")
+    with st.expander(title, icon=":material/upload_file:"):
+        st.caption(description)
+        maps = {key: st.session_state.get(key, {}) for key in keys}
+        st.download_button("Kısıtları indir" if tr else "Download constraints",
+                           export_constraints(maps, st.session_state.get("settings", {})),
+                           "staff_constraints.csv", "text/csv", key="constraints_csv_download")
+        uploaded = st.file_uploader("Kısıt CSV yükle" if tr else "Load CSV constraints", type=["csv"],
+                                    key="constraints_csv_upload")
+        replace = st.checkbox("Tümünü değiştir (mevcut tüm uygunlukları siler)" if tr else
+                              "Replace all (clears every existing availability tier)", key="constraints_csv_replace")
+        if st.button("CSV kısıtlarını uygula" if tr else "Apply CSV constraints", key="constraints_csv_apply"):
+            if uploaded is None:
+                st.warning("Önce bir CSV seçin." if tr else "Choose a CSV first.")
+                return
+            try:
+                incoming = parse_constraints_csv(uploaded.getvalue().decode("utf-8-sig"))
+                merged = merge_constraints(maps, incoming, replace_all=replace)
+            except (UnicodeDecodeError, ValueError) as exc:
+                st.error(str(exc))
+                return
+            for key, value in merged.items():
+                st.session_state[key] = value
+                if key.startswith("assistant_"):
+                    st.session_state["settings"][key] = value
+            st.session_state["result"] = None
+            _bump()
+            st.success("Kısıtlar yüklendi." if tr else "Constraints loaded.")
+            st.rerun()
+
+
 def _policy(lang: str, s: dict) -> None:
     st.caption(t("set_policy_desc", lang))
     # Cap the hour dropdowns to the stepper width; responsive (shrinks on
-    # narrow viewports, never overflows — see CLAUDE.md mobile-portrait rule).
+    # narrow viewports without overflowing).
     st.markdown(
         """
         <style>
@@ -429,18 +454,21 @@ def _fmt_ranges(hours) -> list:
     return out
 
 
-def _availability(lang: str) -> None:
-    labels, label_to_email, email_to_name = _email_labels(st.session_state.get("courses", []))
+def _availability(lang: str, role: str = "Instructor") -> None:
+    prefix = "assistant_" if role == "Assistant" else ""
+    labels, label_to_email, email_to_name = _email_labels(st.session_state.get("courses", []), role)
+    for tier in ("availability", "availability_avoid", "availability_prefer"):
+        st.session_state.setdefault(prefix + tier, st.session_state["settings"].get(prefix + tier, {}))
     if not labels:
-        st.caption(t("set_avail_none_instr", lang))
+        st.caption(t("set_avail_none_assistant" if prefix else "set_avail_none_instr", lang))
         return
     s = st.session_state["settings"]
     dl = DAY_LABELS.get(lang, DAY_LABELS["en"])
     rev = st.session_state.get("set_rev", 0)
     _TIER_EMOJI = [
-        ("availability",        "⛔"),
-        ("availability_avoid",  "🟡"),
-        ("availability_prefer", "🟢"),
+        (prefix + "availability",        "⛔"),
+        (prefix + "availability_avoid",  "🟡"),
+        (prefix + "availability_prefer", "🟢"),
     ]
 
     def _pref_label(lbl):
@@ -449,11 +477,11 @@ def _availability(lang: str) -> None:
         return f"{''.join(parts)} {lbl}" if parts else lbl
 
     st.markdown("<style>.st-key-av_who_wrap{max-width:400px;}</style>", unsafe_allow_html=True)
-    with st.container(key="av_who_wrap"):
+    with st.container(key="av_who_wrap" + prefix):
         selected_label = st.selectbox(
-            t("set_avail_pick", lang),
+            t("set_assistant_pick" if prefix else "set_avail_pick", lang),
             labels,
-            key=f"av_who_{rev}",
+            key=f"{prefix}av_who_{rev}",
             format_func=_pref_label,
         )
     who = label_to_email[selected_label]
@@ -487,7 +515,7 @@ def _availability(lang: str) -> None:
             unsafe_allow_html=True,
         )
         picked = []
-        with st.container(key=f"av_hm_{tab_pfx}"):
+        with st.container(key=f"av_hm_{tab_pfx}{prefix}"):
             head = st.columns(ncol)
             head[0].markdown("<div class='hm-dh'></div>", unsafe_allow_html=True)
             for i, d in enumerate(days):
@@ -502,9 +530,11 @@ def _availability(lang: str) -> None:
                     on = row[i + 1].checkbox(
                         f"{dl.get(d, d)} {h:02d}:00", value=(d, h) in cur,
                         label_visibility="collapsed",
-                        key=f"{tab_pfx}_{who}_{d}_{h}_{rev}")
+                        key=f"{prefix}{tab_pfx}_{who}_{d}_{h}_{rev}")
                     if on:
                         picked.append([d, h])
+        if prefix:
+            st.session_state["settings"][state_key] = avail
         # Autosave — sync checkbox state to session on every render
         new_set = {(str(e[0]), int(e[1])) for e in picked}
         cur_set = {(str(e[0]), int(e[1])) for e in avail.get(who, [])}
@@ -514,7 +544,7 @@ def _availability(lang: str) -> None:
             else:
                 avail.pop(who, None)
         if cur and st.button(t("set_avail_clear", lang), icon=":material/delete_sweep:",
-                             key=f"{tab_pfx}_clr_{rev}"):
+                             key=f"{prefix}{tab_pfx}_clr_{rev}"):
             avail.pop(who, None)
             _bump()
             st.rerun()
@@ -525,16 +555,16 @@ def _availability(lang: str) -> None:
         t("set_avail_tab_prefer", lang),
     ])
     with tab_u:
-        _tier_grid("availability", "set_avail_hint", "set_avail_count", "av_u")
+        _tier_grid(prefix + "availability", "set_avail_hint", "set_avail_count", "av_u")
     with tab_av:
-        _tier_grid("availability_avoid", "set_avail_hint_avoid", "set_avail_count_avoid", "av_a")
+        _tier_grid(prefix + "availability_avoid", "set_avail_hint_avoid", "set_avail_count_avoid", "av_a")
     with tab_pr:
-        _tier_grid("availability_prefer", "set_avail_hint_prefer", "set_avail_count_prefer", "av_p")
+        _tier_grid(prefix + "availability_prefer", "set_avail_hint_prefer", "set_avail_count_prefer", "av_p")
 
     _TIER_ROWS = [
-        ("availability",        "set_avail_tab_unavail", "u"),
-        ("availability_avoid",  "set_avail_tab_avoid",   "a"),
-        ("availability_prefer", "set_avail_tab_prefer",  "p"),
+        (prefix + "availability",        "set_avail_tab_unavail", "u"),
+        (prefix + "availability_avoid",  "set_avail_tab_avoid",   "a"),
+        (prefix + "availability_prefer", "set_avail_tab_prefer",  "p"),
     ]
     for state_key, label_key, tier_sfx in _TIER_ROWS:
         av_tier = st.session_state.get(state_key, {})
@@ -547,7 +577,7 @@ def _availability(lang: str) -> None:
             f"<div class='av-tier-lbl av-tier-{tier_sfx}'>{escape(tier_label)}</div>",
             unsafe_allow_html=True,
         )
-        with st.container(key=f"av_row_{tier_sfx}_{rev}"):
+        with st.container(key=f"av_row_{tier_sfx}_{prefix}{rev}"):
             for d in days:
                 if d not in by_day:
                     continue
@@ -559,7 +589,7 @@ def _availability(lang: str) -> None:
                         rj += 1
                     range_hours = set(hs[ri:rj + 1])
                     chip_label = f"{dl.get(d, d)} {hs[ri]:02d}:00–{hs[rj] + 1:02d}:00"
-                    if st.button(chip_label, key=f"av_rm_{tier_sfx}_{d}_{hs[ri]}_{rev}"):
+                    if st.button(chip_label, key=f"av_rm_{tier_sfx}_{prefix}{d}_{hs[ri]}_{rev}"):
                         new_slots = [e for e in (av_tier.get(who) or [])
                                      if not (e[0] == d and int(e[1]) in range_hours)]
                         if new_slots:
@@ -677,7 +707,10 @@ def _profile(lang: str) -> None:
         a_av = st.session_state.get("availability_avoid", {})
         a_pr = st.session_state.get("availability_prefer", {})
         st.download_button(t("set_profile_download", lang),
-                           data=profile_to_json(s, a, a_av, a_pr),
+                           data=profile_to_json(s, a, a_av, a_pr,
+                               assistant_availability=st.session_state.get("assistant_availability", {}),
+                               assistant_availability_avoid=st.session_state.get("assistant_availability_avoid", {}),
+                               assistant_availability_prefer=st.session_state.get("assistant_availability_prefer", {})),
                            file_name="kairos_school_profile.json", mime="application/json",
                            key="prof_dl")
         up = st.file_uploader(t("set_profile_upload", lang), type=["json"], key="prof_up")
@@ -691,6 +724,8 @@ def _profile(lang: str) -> None:
                 st.session_state["availability"] = new_a
                 st.session_state["availability_avoid"] = new_av
                 st.session_state["availability_prefer"] = new_pr
+                for tier in ("assistant_availability", "assistant_availability_avoid", "assistant_availability_prefer"):
+                    st.session_state[tier] = new_s.get(tier, {})
                 _bump()
                 st.success(t("set_profile_loaded", lang))
                 st.rerun()

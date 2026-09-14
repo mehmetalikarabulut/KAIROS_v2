@@ -1569,12 +1569,9 @@ def hero_html(lang: str = DEFAULT_LANG, chips=None) -> str:
 
 
 def footer_html(lang: str = DEFAULT_LANG) -> str:
-    """Quiet attribution footer shown below the last section."""
-    return (
-        f'<div class="tt-footer">© 2026 {escape(t("footer_dev", lang))} '
-        f'<a href="https://huguryildiz.com/" target="_blank" rel="noopener">'
-        f'Hüseyin Uğur Yıldız</a></div>'
-    )
+    """Institution-neutral footer; license attribution is retained in LICENSE."""
+    return '<div class="tt-footer">KAIROS · Course Timetabling</div>'
+
 
 
 def metric_cards_html(cards: List[Tuple[str, str, str]]) -> str:
@@ -1638,7 +1635,7 @@ _IMP_STATUS_LABEL = {
 }
 # Columns shown in the import preview (canonical field -> i18n-free short header).
 _IMP_COLS = ("Course Code", "Course Name", "Section No", "T", "P", "L",
-             "Instructor Name", "Instructor Email", "~Students",
+             "Instructor Name", "Assistant Name", "~Students",
              "Section Capacity", "Year", "Part-time", "Room Type", "Fixed", "Dept")
 _IMP_NUM = {"T", "P", "L", "~Students", "Section Capacity", "Year"}
 
@@ -1810,10 +1807,10 @@ def import_preview_html(report: dict, lang: str = DEFAULT_LANG) -> str:
     return detect_html + stats_html + table
 
 
-def _block_html(a: dict, is_start: bool) -> str:
+def _block_html(a: dict, is_start: bool, lang: str = DEFAULT_LANG) -> str:
     color = block_color(a)
     is_lab = "lab" in str(a.get("block_kind", "")).lower()
-    is_prat = not is_lab and (a.get("section_p") or 0) > 0
+    is_prat = not is_lab and str(a.get("block_kind", "")).lower() == "practice"
     klass = "tt-blk" + (" lab" if is_lab else "") + ("" if is_start else " cont")
     if is_lab:
         tag = '<span class="tag">LAB</span>'
@@ -1821,6 +1818,8 @@ def _block_html(a: dict, is_start: bool) -> str:
         tag = '<span class="tag prat">PRAT</span>'
     else:
         tag = ""
+    kind = str(a.get("block_kind", "theory"))
+    tag = f'<span class="tag">{escape(t("block_" + kind, lang))}</span>'
     section = escape(str(a.get("section_id") or a.get("course_code", "")))
     instr_name = str(a.get("instructor_name", ""))
     instr_id = str(a.get("instructor_id", ""))
@@ -1831,10 +1830,13 @@ def _block_html(a: dict, is_start: bool) -> str:
         instructor = escape(instr_name or instr_id)
     room = escape(str(a.get("room", "")))
     title = " · ".join(str(a.get(k, "")) for k in
-                       ("course_code", "instructor_name", "room", "cohort") if a.get(k))
+                       ("course_code", "course_name", "block_kind", "instructor_name", "assistant_name", "room", "cohort") if a.get(k))
     lines = [f'<span class="code">{section}{tag}</span>']
     if instructor:
         lines.append(f'<span class="who">{instructor}</span>')
+    assistant = escape(str(a.get("assistant_name", "")))
+    if assistant:
+        lines.append(f'<span class="who">{escape(t("assistant_label", lang))}: {assistant}</span>')
     if room:
         lines.append(f'<span class="meta">{room}</span>')
     return (f'<div class="{klass}" style="--c:{color}" title="{escape(title)}">'
@@ -1844,6 +1846,7 @@ def _block_html(a: dict, is_start: bool) -> str:
 _UNSCHED_REASON = {
     "tr": {
         "no room with sufficient capacity": "Yeterli kapasiteli derslik bulunamadı",
+        "no compatible time window or human availability": "Uyumlu zaman aralığı veya personel müsaitliği bulunamadı",
         "block longer than daily time window": "Blok süresi günlük zaman penceresini aşıyor",
     },
     "en": {
@@ -1896,7 +1899,7 @@ def week_grid_html(schedule: dict, hour_lo: int = 9, hour_hi: int = 21,
         cells = [f'<td class="tt-time">{h:02d}:00</td>']
         for d in DAYS_ORDER:
             blocks = grid.get((d, h), [])
-            inner = "".join(_block_html(a, is_start=(int(a.get("start", 0)) == h))
+            inner = "".join(_block_html(a, is_start=(int(a.get("start", 0)) == h), lang=lang)
                             for a in blocks)
             cells.append(f"<td>{inner}</td>")
         rows.append("<tr>" + "".join(cells) + "</tr>")

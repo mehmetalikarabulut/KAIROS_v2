@@ -3,9 +3,9 @@ from timetabling.model import Room, Section
 
 def test_room_has_categorical_type_default_normal():
     r = Room(room="A1", cap=30, is_lab=False, is_physical=True)
-    assert r.type == "normal"
+    assert r.type == "classroom"
     r2 = Room(room="L1", cap=20, is_lab=True, is_physical=True, type="pc")
-    assert r2.type == "pc" and r2.is_lab is True
+    assert r2.type == "pc_lab" and r2.is_lab is True
 
 
 def test_section_has_required_room_type_default_blank():

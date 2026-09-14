@@ -47,18 +47,8 @@ data/
 # Working docs kept local (analyses, rules.pdf, UI mockup) — not part of the public repo
 docs/
 
-# Local Claude Code guidance — kept on disk, not tracked
-CLAUDE.md
-AGENTS.md
-
-# Local Claude Code config — kept on disk, not tracked
-.Codex/
-.claude/
-.superpowers/
+# Local development files — not part of the application
 bench/_ctx/
-
-# graphify knowledge graph outputs — local only
-graphify-out/
 
 # ITC-2007 benchmark instance files (downloaded, not tracked)
 benchmarks/itc2007/
@@ -70,3 +60,31 @@ assets/KAIROS-promo*.mp4
 
 # Promo build scripts and rendered cards — local only
 tools/promo/
+
+# Runtime data and identifying local diagnostics must not enter source distributions.
+output/
+outputs/
+test-results*.txt
+verification.log
+pytest-cache-files-*/
+
+# Private inputs, credentials and publication scratch space.
+.privacy-work/
+.publish-staging/
+*.zip
+*.csv
+*.xlsx
+*.xls
+*.pdf
+!assets/sample_courses.csv
+!assets/sample_classrooms.csv
+!assets/example_sections.csv
+!assets/example_rooms.csv
+!assets/example_room_reservations.csv
+!assets/example_staff_constraints.csv
+!assets/kairos_input_template.xlsx
+.env
+.env.*
+.streamlit/secrets.toml
+*.pem
+*.key

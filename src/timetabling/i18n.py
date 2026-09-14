@@ -19,6 +19,11 @@ DAY_LABELS_FULL = {
     "en": {"Mo": "Monday", "Tu": "Tuesday", "We": "Wednesday", "Th": "Thursday", "Fr": "Friday", "Sa": "Saturday"},
 }
 
+ROOM_TYPE_LABELS = {
+    "en": {"classroom": "Classroom", "pc_lab": "PC Lab", "online": "Online", "electronics_lab": "Electronics Lab"},
+    "tr": {"classroom": "Derslik", "pc_lab": "PC Lab", "online": "Online", "electronics_lab": "Elektronik Lab"},
+}
+
 STRINGS = {
     "tr": {
         "lang_label": "Dil / Language",
@@ -293,7 +298,7 @@ STRINGS = {
         # classrooms
         "cr_header": "Derslikler",
         "cr_caption": "Derslik listeni CSV ile yükle veya örnek veri setini dene. Tür "
-                      "(lab / pc / studio) verilmezse oda adından (-L / -PC) türetilir. "
+                      "(classroom / pc_lab / online / electronics_lab) verilmezse oda adından (-L / -PC) türetilir. "
                       "Online sanal oda çözüm anında otomatik eklenir.",
         "cr_upload_expander": "⬆ CSV ile derslik listesi yükle",
         "cr_upload_hint": "Sütunlar: Room, Capacity, Type. ROOM/ROOM_CAP da kabul edilir; Type yoksa -L/-PC'den türetilir.",
@@ -625,7 +630,7 @@ STRINGS = {
         "import_col_n": "column {n}",
         "cr_header": "Classrooms",
         "cr_caption": "Upload your room list as a CSV or try the sample dataset. When Type "
-                      "(lab / pc / studio) is omitted it is derived from the room name "
+                      "(classroom / pc_lab / online / electronics_lab) is omitted it is derived from the room name "
                       "(-L / -PC). The Online virtual room is added automatically at solve time.",
         "cr_upload_expander": "⬆ Upload a room list via CSV",
         "cr_upload_hint": "Columns: Room, Capacity, Type. ROOM/ROOM_CAP also accepted; Type inferred from -L/-PC suffix if omitted.",
@@ -690,6 +695,22 @@ STRINGS = {
 }
 
 
+STRINGS["en"].update({
+    "set_tab_assistant": "Research Assistant availability",
+    "set_avail_none_assistant": "Upload sections with Assistant Name or Assistant Email to set availability.",
+    "set_assistant_pick": "Research Assistant",
+    "assistant_label": "Research Assistant",
+    "block_theory": "Theory", "block_practice": "Practice", "block_lab": "LAB",
+})
+STRINGS["tr"].update({
+    "set_tab_assistant": "Araştırma Görevlisi müsaitliği",
+    "set_avail_none_assistant": "Müsaitlik için Asistan Adı veya Asistan E-posta içeren şubeleri yükleyin.",
+    "set_assistant_pick": "Araştırma Görevlisi",
+    "assistant_label": "Araştırma Görevlisi",
+    "block_theory": "Teori", "block_practice": "Uygulama", "block_lab": "Laboratuvar",
+})
+
+
 def t(key: str, lang: str = DEFAULT_LANG, **kwargs) -> str:
     lang = lang if lang in STRINGS else DEFAULT_LANG
     s = STRINGS[lang].get(key) or STRINGS[DEFAULT_LANG].get(key) or key
@@ -712,6 +733,8 @@ _FIELD_LABELS: dict[str, dict[str, str]] = {
         "P":                "P",
         "L":                "L",
         "Instructor Name":  "Öğretim Elemanı",
+        "Assistant Name": "Araştırma Görevlisi",
+        "Assistant Email": "Asistan E-posta",
         "Instructor Email": "E-posta",
         "~Students":        "~Öğrenci",
         "Section Capacity": "Şube Kapasitesi",

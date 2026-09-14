@@ -12,7 +12,7 @@ from .model import Assignment, Section, Room, Instructor
 CSV_FIELDS = ["section_id", "course_code", "course_name", "block_kind",
               "instructor_id", "instructor_name", "cohort", "dept", "department",
               "section_cap", "section_p", "day", "start", "end",
-              "room", "room_cap", "is_lab_room"]
+              "room", "room_cap", "is_lab_room", "assistant_id", "assistant_name", "room_type", "is_online"]
 
 
 def build_schedule_dict(period, assignments: List[Assignment], sections: List[Section],
@@ -31,6 +31,10 @@ def build_schedule_dict(period, assignments: List[Assignment], sections: List[Se
             "course_code": s.code if s else "",
             "course_name": s.name if s else "",
             "block_kind": a.kind,
+            "assistant_id": ",".join(s.assistants_for(a.kind)) if s else "",
+            "assistant_name": " & ".join(s.assistant_names.get(i, i) for i in s.assistants_for(a.kind)) if s else "",
+            "room_type": room.type if room else ("online" if s and s.is_virtual else ""),
+            "is_online": room.is_virtual if room else bool(s and s.is_virtual),
             "instructor_id": ",".join(ids),
             "instructor_name": " & ".join(names),
             "cohort": s.cohort_key if s else "",

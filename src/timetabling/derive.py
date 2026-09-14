@@ -35,10 +35,12 @@ def _make_blocks(section_id, kind, tag, total, max_len, needs_lab) -> List[Block
 def blocks_from_tpl(section_id: str, T: int, P: int, L: int, Cr: int,
                     max_block_len: int = 4, max_theory_session: int = 2) -> List[Block]:
     blocks: List[Block] = []
-    theory_len = (T or 0) + (P or 0)
+    theory_len = T or 0
     lab_len = L or 0
     if theory_len > 0:
         blocks += _make_blocks(section_id, "theory", "T", theory_len, max_theory_session, False)
+    if P:
+        blocks += _make_blocks(section_id, "practice", "P", P, max_block_len, False)
     if lab_len > 0:
         blocks += _make_blocks(section_id, "lab", "L", lab_len, max_block_len, True)
     if not blocks:
@@ -50,10 +52,10 @@ def blocks_from_tpl(section_id: str, T: int, P: int, L: int, Cr: int,
 def theory_session_cap_for_level(T: int, P: int, Cr: int, level: int, cfg: Config) -> int:
     if level <= 4:
         return cfg.max_theory_session
-    theory_len = (T or 0) + (P or 0)
+    theory_len = T or 0
     if theory_len > 0:
         # Graduate: split at 3 h max so 4-h/6-h blocks fit in the evening window.
-        # Courses with T+P ≤ 3 keep a single session unchanged.
+        # Courses with T ≤ 3 keep a single theory session unchanged.
         return min(3, theory_len)
     return Cr if (Cr and Cr > 0) else 3
 
@@ -69,7 +71,7 @@ def _students(row) -> int:
 def build_sections(frame, cfg: Config) -> Tuple[List[Section], Dict]:
     sections: List[Section] = []
     report = {"excluded": 0, "missing_cohort": 0, "missing_hours": 0,
-              "hours_rule": "theory = T+P, lab = L (default 3h if all zero)"}
+              "hours_rule": "theory = T, practice = P, lab = L (default 3h if all zero)"}
     for _, row in frame.iterrows():
         r = row.to_dict()
         sid = r.get("section_id", "").strip()

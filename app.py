@@ -33,6 +33,8 @@ st.session_state.setdefault("settings", default_settings())
 st.session_state.setdefault("availability", {})
 st.session_state.setdefault("availability_avoid", {})
 st.session_state.setdefault("availability_prefer", {})
+for tier in ("assistant_availability", "assistant_availability_avoid", "assistant_availability_prefer"):
+    st.session_state.setdefault(tier, {})
 
 st.markdown(brand_css(get_theme()), unsafe_allow_html=True)
 

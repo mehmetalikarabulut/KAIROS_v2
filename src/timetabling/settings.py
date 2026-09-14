@@ -67,6 +67,9 @@ DEFAULT_SETTINGS: dict = {
     # Soft-polish wall-clock cap. Balanced is the interactive default: measured sample data
     # showed real quality gain above 180s, while 600s is better kept for best-quality runs.
     "quality_mode": "balanced",
+    "assistant_availability": {},
+    "assistant_availability_avoid": {},
+    "assistant_availability_prefer": {},
 }
 
 QUALITY_MODES: dict = {"fast": 180.0, "balanced": 300.0, "best": 600.0}
@@ -100,13 +103,15 @@ def availability_closed_slots(availability: Dict[str, list], settings: dict) -> 
     slots. `slot` is an hour int (e.g. 9 → blocks 09:00–10:00) for the current hourly
     picker, or the legacy half-day code "AM"/"PM" (AM = [day_start, midday_split);
     PM = [midday_split, _HORIZON_END)) — both are accepted so older profiles still load."""
-    if not availability:
+    if not isinstance(availability, dict) or not availability:
         return frozenset()
     s = settings or {}
     day_start = _int(s.get("day_start"), 9)
     midday = 13
     out = set()
     for email, slots in availability.items():
+        if not isinstance(slots, (list, tuple)):
+            continue
         for entry in slots or []:
             try:
                 day, val = entry[0], entry[1]
@@ -123,7 +128,7 @@ def availability_closed_slots(availability: Dict[str, list], settings: dict) -> 
                 except (TypeError, ValueError):
                     continue
             for h in hours:
-                out.add((email, day, h))
+                out.add((str(email).strip().lower(), day, h))
     return frozenset(out)
 
 
@@ -151,7 +156,10 @@ def build_config(settings: dict, availability: Dict[str, list],
                  solve_seconds: float,
                  availability_avoid: Dict[str, list] = None,
                  availability_prefer: Dict[str, list] = None,
-                 ref_schedule: dict = None) -> Config:
+                 ref_schedule: dict = None,
+                 assistant_availability: Dict[str, list] = None,
+                 assistant_availability_avoid: Dict[str, list] = None,
+                 assistant_availability_prefer: Dict[str, list] = None) -> Config:
     """Map a Settings dict + availability into a Config. Never raises on bad input — every
     field falls back to its default and the solve proceeds."""
     s = settings or {}
@@ -273,6 +281,14 @@ def build_config(settings: dict, availability: Dict[str, list],
         w_dept_fairness=_optional_preset(weights, "dept_fairness"),
         w_session_gap=_optional_preset(weights, "session_gap"),
         min_session_gap_days=_int(s.get("min_session_gap_days"), 2),
+        assistant_unavailable=availability_closed_slots(
+            assistant_availability if assistant_availability is not None else s.get("assistant_availability", {}), s),
+        assistant_avoid=availability_closed_slots(
+            assistant_availability_avoid if assistant_availability_avoid is not None else s.get("assistant_availability_avoid", {}), s),
+        assistant_preferred=availability_closed_slots(
+            assistant_availability_prefer if assistant_availability_prefer is not None else s.get("assistant_availability_prefer", {}), s),
+        assistant_prefer_ids=frozenset(i for i, _, _ in availability_closed_slots(
+            assistant_availability_prefer if assistant_availability_prefer is not None else s.get("assistant_availability_prefer", {}), s)),
         instr_unavailable=closed,
         instr_avoid=avoid_closed,
         instr_preferred=prefer_slots,
@@ -289,8 +305,17 @@ def build_config(settings: dict, availability: Dict[str, list],
 
 def profile_to_json(settings: dict, availability: Dict[str, list],
                     availability_avoid: Dict[str, list] = None,
-                    availability_prefer: Dict[str, list] = None) -> str:
+                    availability_prefer: Dict[str, list] = None,
+                    assistant_availability: Dict[str, list] = None,
+                    assistant_availability_avoid: Dict[str, list] = None,
+                    assistant_availability_prefer: Dict[str, list] = None) -> str:
     """Serialize a school profile (settings + availability tiers) for download."""
+    settings = copy.deepcopy(settings)
+    for key, value in (("assistant_availability", assistant_availability),
+                       ("assistant_availability_avoid", assistant_availability_avoid),
+                       ("assistant_availability_prefer", assistant_availability_prefer)):
+        if value is not None:
+            settings[key] = value
     return json.dumps({
         "settings": settings,
         "availability": availability,

@@ -93,6 +93,11 @@ def _metrics(assignments, sections, rooms, instructors, cfg, check_placement=Tru
     instr_teaching_days = sum(len(days) for days in instr_days.values())
     return {
         "n_assignments": len(assignments),
+        "block_types": dict(Counter(a.kind for a in assignments)),
+        "assistant_hours": sum(a.end - a.start for a in assignments
+                               for _ in sec_by_id[a.section_id].assistants_for(a.kind)
+                               if a.section_id in sec_by_id),
+        "online_blocks": sum(bool(rooms.get(a.room) and rooms[a.room].is_virtual) for a in assignments),
         "conflicts": dict(by_kind),
         "n_violations": len(v),
         "rooms_used": rooms_used,

@@ -1,0 +1,5 @@
+Course Code,Course Name,Dept,Section No,Instructor Name,T,P,L,Section Capacity,Assistant Name,Part-time,Room Type
+CS 101,Example Course A,Department A,01,Instructor A,2,1,2,20,Assistant A,false,pc_lab
+EE 201,Example Course B,Department B,01,Instructor B,2,0,2,20,Assistant A,false,electronics_lab
+MA 101,Example Course C,Department C,01,Instructor C (S),2,1,0,30,,true,classroom
+ON 101,Example Course D,Department D,01,Instructor D,1,0,0,50,,false,online

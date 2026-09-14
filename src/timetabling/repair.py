@@ -8,7 +8,7 @@ import os
 from ortools.sat.python import cp_model
 
 from .config import Config
-from .model import Section, Room, Instructor, Candidate, Assignment
+from .model import Section, Room, Instructor, Candidate, Assignment, virtual_supply
 from .model_cpsat import gen_candidates, _instructors_of
 
 BIG = 10_000
@@ -34,7 +34,13 @@ class State:
         self.cohort_slot_courses = defaultdict(Counter)   # (cohort, day, hour) -> {course: count}
         self.room_hours_used = Counter()   # room -> # occupied hour-slots (virtual excluded)
 
+    def human_ids(self, bid):
+        s = self.sec_of[bid]
+        return list(dict.fromkeys(list(self.sec_instr.get(s.section_id, []))
+                                 + s.assistants_for(s.block_kind(bid))))
+
     def free_to_place(self, c, sid, iids):
+        iids = self.human_ids(c.block_id)
         for hh in range(c.start, c.start + c.length):
             if c.room not in self.virtual and (c.room, c.day, hh) in self.room_owner:
                 return False
@@ -46,13 +52,14 @@ class State:
         return True
 
     def occupy(self, bid, c):
-        s = self.sec_of[bid]; iids = self.sec_instr.get(s.section_id, [])
+        s = self.sec_of[bid]; iids = self.human_ids(bid)
         self.placed[bid] = c
         self.sect_blocks[s.section_id].add(bid)
-        if "#L" not in bid:
+        if s.block_kind(bid) == "theory":
             self.sect_theory_day[(s.section_id, c.day)].add(bid)
         for iid in iids:
             self.instr_blocks[iid].add(bid)
+        for iid in self.sec_instr.get(s.section_id, []):
             self.instr_day_hours[(iid, c.day)] += c.length
             self.instr_active_days[iid].add(c.day)
         for hh in range(c.start, c.start + c.length):
@@ -68,12 +75,13 @@ class State:
         c = self.placed.pop(bid, None)
         if c is None:
             return
-        s = self.sec_of[bid]; iids = self.sec_instr.get(s.section_id, [])
+        s = self.sec_of[bid]; iids = self.human_ids(bid)
         self.sect_blocks[s.section_id].discard(bid)
-        if "#L" not in bid:
+        if s.block_kind(bid) == "theory":
             self.sect_theory_day[(s.section_id, c.day)].discard(bid)
         for iid in iids:
             self.instr_blocks[iid].discard(bid)
+        for iid in self.sec_instr.get(s.section_id, []):
             self.instr_day_hours[(iid, c.day)] -= c.length
             if self.instr_day_hours[(iid, c.day)] <= 0:
                 self.instr_active_days[iid].discard(c.day)
@@ -103,7 +111,7 @@ def _soft_score(state: State, c, s, cfg: Config) -> int:
     construction-stage analog of the CP-SAT instr_days objective; inert when the dial is off
     (max_instr_days >= week length)."""
     score = 0
-    if "#L" not in c.block_id:
+    if s.block_kind(c.block_id) == "theory":
         siblings = state.sect_theory_day.get((s.section_id, c.day), ())
         if siblings and c.block_id not in siblings:
             score += _W_SAME_DAY
@@ -120,6 +128,15 @@ def _soft_score(state: State, c, s, cfg: Config) -> int:
     return score
 
 
+def assistant_preference_counts(c, s, cfg):
+    ids = s.assistants_for(s.block_kind(c.block_id))
+    span = range(c.start, c.start + c.length)
+    avoid = sum((i, c.day, h) in cfg.assistant_avoid for i in ids for h in span)
+    miss = sum(i in cfg.assistant_prefer_ids and not any(
+        (i, c.day, h) in cfg.assistant_preferred for h in span) for i in ids)
+    return avoid, miss
+
+
 def _cand_soft(c, s, cfg: Config):
     """Per-candidate separable soft cost: S-Order + S-EngLab + S-RoomUtil. Independent of
     other blocks, so it folds into a variable's objective coefficient. Mirrors the per-variable
@@ -127,7 +144,7 @@ def _cand_soft(c, s, cfg: Config):
     cost = 0
     if 2 <= s.level <= 4:
         cost += cfg.w_order * (4 - s.level) * (c.start - cfg.horizon_start)
-    if (cfg.eng_department_match in s.department and "#L" in c.block_id
+    if (cfg.eng_department_match in s.department and s.block_kind(c.block_id) == "lab"
             and c.day not in cfg.eng_lab_days):
         cost += cfg.w_englab
     if cfg.w_room_util and c.cap > 0 and not s.is_virtual and c.cap > s.students:
@@ -143,6 +160,8 @@ def _cand_soft(c, s, cfg: Config):
                 if not any((iid, c.day, hh) in cfg.instr_preferred
                            for hh in range(c.start, c.start + c.length)):
                     cost += cfg.w_instr_prefer
+    avoid, miss = assistant_preference_counts(c, s, cfg)
+    cost += cfg.w_instr_avoid * avoid + cfg.w_instr_prefer * miss
     if cfg.ref_schedule and cfg.w_perturbation:
         ref = cfg.ref_schedule.get(c.block_id)
         if ref is not None and (c.day, c.start, c.room) != ref:
@@ -157,12 +176,14 @@ def greedy_construct(state: State, order: List[str], cand_by_block,
     otherwise first-feasible. Shaping is on when soft_shaping_in_repair is set."""
     shaping = cfg is not None and cfg.soft_shaping_in_repair
     for bid in order:
-        s = state.sec_of[bid]; iids = state.sec_instr.get(s.section_id, [])
+        s = state.sec_of[bid]; iids = state.human_ids(bid)
         if shaping:
             best, best_score = None, None
             for c in cand_by_block[bid]:
                 if state.free_to_place(c, s.section_id, iids):
-                    sc = _soft_score(state, c, s, cfg)
+                    avoid, miss = assistant_preference_counts(c, s, cfg)
+                    sc = (_soft_score(state, c, s, cfg)
+                          + cfg.w_instr_avoid * avoid + cfg.w_instr_prefer * miss)
                     if best is None or sc < best_score:
                         best, best_score = c, sc
             if best is not None:
@@ -207,7 +228,7 @@ def _add_competitor_counts(state: State, seeds, cand_by_block, counts: Counter, 
     for bid in seeds:
         if bid not in state.sec_of:
             continue
-        s = state.sec_of[bid]; iids = state.sec_instr.get(s.section_id, [])
+        s = state.sec_of[bid]; iids = state.human_ids(bid)
         for c in cand_by_block.get(bid, ()):
             if c.room in state.virtual:
                 continue
@@ -288,7 +309,7 @@ def _same_course_unplaced_batches(unplaced, sec_of) -> list[list[str]]:
 def _legacy_competitors(state: State, batch, cand_by_block) -> set:
     comp = set()
     for bid in batch:
-        s = state.sec_of[bid]; iids = state.sec_instr.get(s.section_id, [])
+        s = state.sec_of[bid]; iids = state.human_ids(bid)
         for c in cand_by_block[bid]:
             if c.room in state.virtual:
                 continue
@@ -374,9 +395,9 @@ def _parallel_coord_viol(placed, sec_of, parallel_policies, course_codes=None) -
             theory_end = {}
             labs = []
             for bid, s, cand in rows:
-                if "#L" in bid:
+                if s.block_kind(bid) == "lab":
                     labs.append((s.section_id, cand))
-                else:
+                elif s.block_kind(bid) == "theory":
                     key = (_DAY_IDX.get(cand.day, -1), cand.start + cand.length)
                     theory_end[s.section_id] = max(theory_end.get(s.section_id, key), key)
             for sid, cand in labs:
@@ -418,7 +439,7 @@ def _soft_total(state, cfg, staff_ids=frozenset()) -> int:
         instr_hour_bldg = {}
         for bid, c in state.placed.items():
             s = state.sec_of[bid]
-            bldg = building_of(c.room)
+            bldg = None if c.room in state.virtual else building_of(c.room)
             if bldg is None:
                 continue
             for iid in state.sec_instr.get(s.section_id, []):
@@ -614,8 +635,8 @@ def repair_round(state: State, batch, cand_by_block, cfg=None,
     for bid, c in state.placed.items():
         if bid in free_set:
             continue
-        s = state.sec_of[bid]; iids = state.sec_instr.get(s.section_id, [])
-        if "#L" not in bid:
+        s = state.sec_of[bid]; iids = state.human_ids(bid)
+        if s.block_kind(bid) == "theory":
             frozen_theory_day[s.section_id].add(c.day)
         for hh in range(c.start, c.start + c.length):
             if c.room not in state.virtual:
@@ -631,8 +652,8 @@ def repair_round(state: State, batch, cand_by_block, cfg=None,
     unpl = {}
     cur = {}
     for bid in free:
-        s = state.sec_of[bid]; iids = s.instructor_ids
-        is_theory = "#L" not in bid
+        s = state.sec_of[bid]; iids = state.human_ids(bid)
+        is_theory = s.block_kind(bid) == "theory"
         fdays = frozen_theory_day.get(s.section_id, set())
         cands = [c for c in cand_by_block[bid]
                  if not any(((c.room not in state.virtual and (c.room, c.day, hh) in reserved_room)
@@ -747,7 +768,7 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
     _pb = progress_cb or (lambda _: None)
     room_list = list(rooms.values())
     cfg = replace(cfg, max_rooms_per_block=_repair_room_cap(room_list, cfg))
-    virtual_names = {r.room for r in room_list if r.is_virtual}
+    virtual_names = {r.room for r in room_list if r.is_virtual} | {virtual_supply(room_list, cfg.online_room).room}
     blocks = [(b, s) for s in sections for b in s.blocks]
     total = len(blocks)
     sec_of = {b.block_id: s for b, s in blocks}
@@ -835,7 +856,7 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
     assignments = []
     for bid, c in state.placed.items():
         s = sec_of[bid]
-        kind = "lab" if "#L" in bid else "theory"
+        kind = sec_of[bid].block_kind(bid)
         assignments.append(Assignment(bid, s.section_id, kind, c.room, c.day, c.start,
                                        c.start + c.length))
     unplaced_ids = [b.block_id for b, _ in blocks if b.block_id not in state.placed]

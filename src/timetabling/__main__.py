@@ -32,6 +32,7 @@ def _apply_scope(frame, scope: str):
 def main():
     ap = argparse.ArgumentParser(prog="timetabling")
     ap.add_argument("--courses", help="course-list CSV to solve")
+    ap.add_argument("--room-reservations", help="weekly room reservation CSV: Room, Dept, Day, Start, End")
     ap.add_argument("--rooms", help="classroom CSV; defaults to assets/sample_classrooms.csv with --courses")
     ap.add_argument("--period", default="001", choices=["001", "002"],
                     help="legacy data/ source term: 001 or 002")
@@ -72,6 +73,9 @@ def main():
         all_sections, derive_rep = build_sections_from_courselist(course_rows, "uploaded", cfg)
         instructors = build_instructors_from_courselist(course_rows)
         rooms = build_rooms_from_ui(room_rows, cfg)
+        if args.room_reservations:
+            from .room_reservations import parse_room_reservations, apply_room_reservations
+            rooms = apply_room_reservations(rooms, parse_room_reservations(read_raw(args.room_reservations)))
         mark_virtual(all_sections, rooms, cfg)
         room_list = list(rooms.values())
         sections, unschedulable = split_roomable(all_sections, room_list, cfg, instructors)
@@ -85,6 +89,9 @@ def main():
               f"rooms={len(rooms)}")
     else:
         rooms = build_rooms(load_classrooms(), cfg)
+        if args.room_reservations:
+            from .room_reservations import parse_room_reservations, apply_room_reservations
+            rooms = apply_room_reservations(rooms, parse_room_reservations(read_raw(args.room_reservations)))
         instructors = build_instructors(load_lecturers())
         frame = _apply_scope(build_section_frame(args.period, cfg.include_plan_only), args.scope)
         all_sections, derive_rep = build_sections(frame, cfg)

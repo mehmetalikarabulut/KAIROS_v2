@@ -11,6 +11,7 @@ from .decompose import solve_decomposed
 from .repair import solve_repair
 from .validate import validate
 from .export import build_schedule_dict
+from .model import virtual_supply
 
 AUTO_REPAIR_THRESHOLD = 50
 
@@ -59,6 +60,9 @@ def run_pipeline(period: str, sections: list, rooms: Dict, instructors: Dict,
     t_total = time.perf_counter()
     _emit("pipeline_start", sections=len(sections), rooms=len(rooms), solver_hint=solver)
 
+    rooms = dict(rooms)
+    supply = virtual_supply(rooms.values(), cfg.online_room)
+    rooms.setdefault(supply.room, supply)
     room_list = list(rooms.values())
     t0 = time.perf_counter()
     schedulable, unschedulable = split_roomable(sections, room_list, cfg, instructors)

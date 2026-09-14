@@ -9,8 +9,8 @@ _SCHED = {
             "cohort": "ADA-1",
             "dept": "ADA",
             "department": "Analytics and Data Science",
-            "instructor_name": "Ada Lovelace",
-            "instructor_id": "ada@example.edu",
+            "instructor_name": "Instructor D",
+            "instructor_id": "ada@example.test",
         },
         {
             "course_code": "ADA 110",
@@ -43,4 +43,4 @@ def test_result_entity_labels_include_department_and_course_names():
 def test_result_entity_labels_keep_instructor_email_format():
     fmt = results_view._entity_label_func(_SCHED, "instructor_name")
 
-    assert fmt("Ada Lovelace") == "Ada Lovelace (ada@example.edu)"
+    assert fmt("Instructor D") == "Instructor D (ada@example.test)"

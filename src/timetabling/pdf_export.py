@@ -19,7 +19,7 @@ from fpdf import FPDF
 
 from .ui_grid import DAYS_ORDER, filter_assignments
 from .ui_style import block_color
-from .i18n import DAY_LABELS_FULL, DEFAULT_LANG
+from .i18n import DAY_LABELS_FULL, DEFAULT_LANG, t
 
 _FONT_DIR = Path(__file__).parent / "assets" / "fonts"
 _FONT_REGULAR = _FONT_DIR / "DejaVuSans.ttf"
@@ -77,7 +77,7 @@ def _block_tag(a: dict) -> str:
     """LAB / PRAT tag mirroring the on-screen grid, or '' for plain theory."""
     if "lab" in str(a.get("block_kind", "")).lower():
         return "LAB"
-    if (a.get("section_p") or 0) > 0:
+    if str(a.get("block_kind", "")).lower() == "practice":
         return "PRAT"
     return ""
 
@@ -196,7 +196,7 @@ def _paginate_for_readability(schedule: dict,
 
 
 def _draw_block(pdf: FPDF, a: dict, x: float, y: float, w: float, h: float,
-                show_instructor: bool, cont: bool = False) -> None:
+                show_instructor: bool, cont: bool = False, lang: str = DEFAULT_LANG) -> None:
     color = block_color(a)
     accent = _hex_to_rgb(color)
     fill = _tint(color, 0.13)                  # ~13% color over white (matches UI)
@@ -223,7 +223,8 @@ def _draw_block(pdf: FPDF, a: dict, x: float, y: float, w: float, h: float,
         pdf.set_dash_pattern()                 # reset to solid
 
     tag = _block_tag(a)
-    title = _section_title_label(a)
+    component = {"theory": "T", "practice": "P", "lab": "L"}.get(a.get("block_kind"), "T")
+    title = _section_title_label(a) + " · " + component
     lines = [(title, "", 7.4, True, code_rgb, True, "text")]
     room = str(a.get("room", "") or "")
     if room:
@@ -235,8 +236,9 @@ def _draw_block(pdf: FPDF, a: dict, x: float, y: float, w: float, h: float,
             lines.append((name, "", 5.1, False, (96, 100, 112), False, "text"))
         elif iid and not name:
             lines.append((iid, "", 5.1, False, (96, 100, 112), False, "text"))
-    if tag:
-        lines.append((tag, "", 4.4, True, _hex_to_rgb("#b45309") if tag == "PRAT" else (90, 95, 110), False, "tag"))
+    assistant = str(a.get("assistant_name", "") or "")
+    if assistant:
+        lines.append(("TA: " + assistant, "", 5.1, False, (96, 100, 112), False, "text"))
 
     pad_l, pad_t = 4.0, 1.1
     tw = w - pad_l - 1.8
@@ -315,6 +317,10 @@ def _draw_grid_page(pdf: FPDF, schedule: dict, title: str,
     pdf.set_text_color(20, 20, 20)
     title_w = pdf.w - pdf.l_margin - pdf.r_margin - (logo_w + 4 if _LOGO_PATH.exists() else 0)
     pdf.cell(title_w, 9, title, new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("DejaVu", "", 7)
+    legend = " · ".join(f"{tag}: {t('block_' + kind, lang)}" for tag, kind in
+                        (("T", "theory"), ("P", "practice"), ("L", "lab")))
+    pdf.cell(title_w, 3, legend, new_x="LMARGIN", new_y="NEXT")
 
     grid_x = pdf.l_margin
     grid_y = pdf.get_y() + 2
@@ -375,7 +381,7 @@ def _draw_grid_page(pdf: FPDF, schedule: dict, title: str,
                 byy = body_y + (hh - _HOUR_LO) * _ROW_H + gap
                 bh = _ROW_H - 2 * gap
                 _draw_block(pdf, a, bx, byy, bw, bh, show_instructor,
-                            cont=(hh > start))
+                            cont=(hh > start), lang=lang)
 
 
 def build_grid_pdf(schedule: dict, title: str, lang: str = DEFAULT_LANG,
@@ -384,7 +390,7 @@ def build_grid_pdf(schedule: dict, title: str, lang: str = DEFAULT_LANG,
 
     schedule: a schedule dict ({"assignments": [...]}) already narrowed to the
         entity (use filter_assignments upstream).
-    title: header line, e.g. "Öğretim elemanı: Ahmet Acar".
+    title: header line, e.g. "Öğretim elemanı: Instructor A".
     """
     pdf = _new_pdf()
     _draw_grid_page(pdf, schedule, title, lang, show_instructor)
@@ -423,7 +429,7 @@ def build_pdf_bundle(schedule: dict, view_field: str, entities: List[str],
     'schedule_<view_field>_<YYYYMMDD>_<HHMMSS>.pdf' (download timestamp)."""
     ents = sorted({str(e) for e in entities}, key=_natsort_key)
     # For the instructor view, enrich the page title with the email so it reads
-    # "Öğretim elemanı: Ahmet Güneş (agunes@uni.edu)" — mirrors the UI dropdown.
+    # "Öğretim elemanı: Instructor A (instructor-a@example.test)" — mirrors the UI dropdown.
     name_to_email: dict = {}
     if view_field == "instructor_name":
         for a in schedule.get("assignments", []):

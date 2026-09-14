@@ -124,7 +124,7 @@ def _dept_compactness_of(state, departments=None) -> int:
         dept = _department_key(state.sec_of[bid])
         if not dept or (dept_filter is not None and dept not in dept_filter):
             continue
-        bldg = building_of(c.room)
+        bldg = None if c.room in state.virtual else building_of(c.room)
         if bldg is None:
             continue
         dept_buildings[dept][bldg] += 1
@@ -188,7 +188,7 @@ def _same_day_theory_excess(placed, sections=None) -> int:
     section_filter = set(sections) if sections is not None else None
     by_section_day = defaultdict(int)
     for bid, c in placed.items():
-        if "#L" in bid:
+        if "#T" not in bid:
             continue
         sec_id = bid.split("#")[0]
         if section_filter is not None and sec_id not in section_filter:
@@ -224,6 +224,11 @@ def _global_terms(state, cfg) -> dict:
                 if not any((iid, c.day, hh) in cfg.instr_preferred
                            for hh in range(c.start, c.start + c.length)):
                     instr_prefer_miss += 1
+    from .repair import assistant_preference_counts
+    for bid, c in state.placed.items():
+        av, pr = assistant_preference_counts(c, state.sec_of[bid], cfg)
+        instr_avoid_viol += av
+        instr_prefer_miss += pr
     T = cfg.max_consecutive_hours
     maxrun = (sum(_run_excess(h, T) for h in coh_day.values())
               + sum(_run_excess(h, T) for h in instr_day.values()))
@@ -243,7 +248,7 @@ def _global_terms(state, cfg) -> dict:
         instr_hour_bldg = {}
         for bid, c in state.placed.items():
             s = state.sec_of[bid]
-            bldg = building_of(c.room)
+            bldg = None if c.room in state.virtual else building_of(c.room)
             if bldg is None:
                 continue
             for iid in state.sec_instr.get(s.section_id, []):
@@ -324,6 +329,13 @@ def _local_terms(state, cohorts, instrs, rooms, blocks, cfg) -> dict:
                     if not any((iid, c.day, hh) in cfg.instr_preferred
                                for hh in range(c.start, c.start + c.length)):
                         instr_prefer_miss += 1
+    from .repair import assistant_preference_counts
+    for bid, c in state.placed.items():
+        if state.sec_of[bid].section_id not in sections:
+            continue
+        av, pr = assistant_preference_counts(c, state.sec_of[bid], cfg)
+        instr_avoid_viol += av
+        instr_prefer_miss += pr
     T = cfg.max_consecutive_hours
     maxrun = (sum(_run_excess(h, T) for h in coh_day.values())
               + sum(_run_excess(h, T) for h in instr_day.values()))
@@ -339,7 +351,7 @@ def _local_terms(state, cohorts, instrs, rooms, blocks, cfg) -> dict:
     if cfg.w_building_change:
         for bid, c in state.placed.items():
             s = state.sec_of[bid]
-            bldg = building_of(c.room)
+            bldg = None if c.room in state.virtual else building_of(c.room)
             if bldg is None:
                 continue
             for iid in state.sec_instr.get(s.section_id, []):
@@ -433,7 +445,7 @@ def try_relocate(state, cand_by_block, bid, rng, eval_fn):
     and dterms the per-term delta dict (idle/maxrun/instr_days/room_stable/free_day/conf). revert() restores the
     original placement."""
     s = state.sec_of[bid]
-    iids = state.sec_instr.get(s.section_id, [])
+    iids = state.human_ids(bid)
     c_old = state.placed.get(bid)
     if c_old is None:
         return None
@@ -497,7 +509,7 @@ def try_chain(state, cand_by_block, bid, rng, eval_fn, max_depth=4):
     def note(b, c):
         s = state.sec_of[b]
         cohorts.add(s.cohort_key)
-        instrs.update(state.sec_instr.get(s.section_id, []))
+        instrs.update(state.human_ids(b))
         rooms.add(c.room)
         blocks.add(b)
 
@@ -518,7 +530,7 @@ def try_chain(state, cand_by_block, bid, rng, eval_fn, max_depth=4):
     ok = False
     for depth in range(max_depth):
         s = state.sec_of[to_place]
-        iids = state.sec_instr.get(s.section_id, [])
+        iids = state.human_ids(to_place)
         cands = [c for c in cand_by_block[to_place]
                  if not (depth == 0 and _slot(c) == _slot(old[to_place]))]
         order = list(range(len(cands)))
@@ -584,8 +596,8 @@ def try_swap(state, cand_by_block, bid1, bid2, eval_fn):
         return None
     s1 = state.sec_of[bid1]
     s2 = state.sec_of[bid2]
-    iids1 = state.sec_instr.get(s1.section_id, [])
-    iids2 = state.sec_instr.get(s2.section_id, [])
+    iids1 = state.human_ids(bid1)
+    iids2 = state.human_ids(bid2)
     c1_new = next((c for c in cand_by_block[bid1] if _slot(c) == _slot(c2)), None)
     c2_new = next((c for c in cand_by_block[bid2] if _slot(c) == _slot(c1)), None)
     if c1_new is None or c2_new is None:
@@ -641,7 +653,7 @@ def try_consolidate_instr(state, cand_by_block, iid, rng, eval_fn):
     rng.shuffle(src_blocks)
     for bid in src_blocks:
         s = state.sec_of[bid]
-        iids = state.sec_instr.get(s.section_id, [])
+        iids = state.human_ids(bid)
         c_old = state.placed.get(bid)
         if c_old is None:
             continue
@@ -704,7 +716,7 @@ def try_free_cohort_day(state, cand_by_block, cohort_key, rng, eval_fn, cfg):
 
     for bid in src_blocks:
         s = state.sec_of[bid]
-        iids = state.sec_instr.get(s.section_id, [])
+        iids = state.human_ids(bid)
         c_old = state.placed.get(bid)
         if c_old is None:
             _revert_partial()
