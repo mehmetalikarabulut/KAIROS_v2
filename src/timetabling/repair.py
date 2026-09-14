@@ -41,6 +41,19 @@ class State:
 
     def free_to_place(self, c, sid, iids):
         iids = self.human_ids(c.block_id)
+        # Keep a section's T/P/L components as one hard consecutive sequence.
+        # This works whichever component the greedy/repair order places first.
+        s = self.sec_of[c.block_id]
+        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        index = next((i for i, b in enumerate(components) if b.block_id == c.block_id), -1)
+        if index > 0:
+            previous = self.placed.get(components[index - 1].block_id)
+            if previous and (c.day != previous.day or c.start != previous.start + previous.length):
+                return False
+        if 0 <= index < len(components) - 1:
+            following = self.placed.get(components[index + 1].block_id)
+            if following and (c.day != following.day or c.start + c.length != following.start):
+                return False
         for hh in range(c.start, c.start + c.length):
             if c.room not in self.virtual and (c.room, c.day, hh) in self.room_owner:
                 return False
@@ -149,6 +162,8 @@ def _cand_soft(c, s, cfg: Config):
         cost += cfg.w_englab
     if cfg.w_room_util and c.cap > 0 and not s.is_virtual and c.cap > s.students:
         cost += cfg.w_room_util * (c.cap - s.students) / c.cap
+    if c.cap > 0 and not s.is_virtual and c.cap < s.students:
+        cost += cfg.w_capacity_shortfall * (s.students - c.cap)
     if cfg.instr_avoid:
         for iid in s.instructor_ids:
             for hh in range(c.start, c.start + c.length):
@@ -193,6 +208,27 @@ def greedy_construct(state: State, order: List[str], cand_by_block,
                 if state.free_to_place(c, s.section_id, iids):
                     state.occupy(bid, c)
                     break
+
+
+def _filter_component_sequences(sections, cand_by_block):
+    """Keep only candidates participating in a complete T→P→L chain."""
+    for s in sections:
+        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        if len(components) < 2:
+            continue
+        paths = [(candidate,) for candidate in cand_by_block[components[0].block_id]]
+        for block in components[1:]:
+            paths = [path + (candidate,) for path in paths
+                     for candidate in cand_by_block[block.block_id]
+                     if candidate.day == path[-1].day
+                     and candidate.start == path[-1].start + path[-1].length]
+        valid = [set() for _ in components]
+        for path in paths:
+            for index, candidate in enumerate(path):
+                valid[index].add(candidate)
+        for block, allowed in zip(components, valid):
+            cand_by_block[block.block_id] = [candidate for candidate in cand_by_block[block.block_id]
+                                              if candidate in allowed]
 
 
 BATCH = 30
@@ -780,8 +816,11 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
         ins_list = _instructors_of(s, instructors)
         cand_by_block[b.block_id] = gen_candidates(b, s, ins_list, room_list, cfg)
 
+    _filter_component_sequences(sections, cand_by_block)
+
+    component_index = {b.block_id: i for s in sections for i, b in enumerate(s.blocks)}
     order = sorted((b.block_id for b, _ in blocks),
-                   key=lambda bid: (len(cand_by_block[bid]), -sec_of[bid].students))
+                   key=lambda bid: (component_index[bid], len(cand_by_block[bid]), -sec_of[bid].students))
 
     state = State(sec_of, sec_instr, virtual_names)
     t0 = perf_counter()
@@ -837,7 +876,7 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
     post_repair_placed = dict(state.placed)
     soft_polish_rounds = 0
     soft_pre = soft_post = None
-    if cfg.soft_polish_in_repair:
+    if cfg.soft_polish_in_repair and not any(len(s.blocks) > 1 for s in sections):
         from .soft_search import anneal_soft, _global_terms
         # Scale cap by problem size (~0.75 s/block); prevents tiny inputs from burning
         # the full 600 s budget (e.g. 100 blocks → ≈75 s, 841 blocks → 600 s).
@@ -852,6 +891,18 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
             anneal_soft(state, cand_by_block, cfg, budget, seed=cfg.soft_polish_seed)
             soft_post = _global_terms(state, cfg)
             soft_polish_rounds = 1
+
+    # Never publish an isolated part of a course sequence. A partial sequence
+    # is less useful than an explicitly unplaced course and would violate the
+    # no-intervening-lesson rule.
+    for s in sections:
+        component_ids = [b.block_id for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        placed_components = [state.placed.get(bid) for bid in component_ids]
+        consecutive = all(left and right and left.day == right.day and left.start + left.length == right.start
+                          for left, right in zip(placed_components, placed_components[1:]))
+        if component_ids and (any(placed_components) and (not all(placed_components) or not consecutive)):
+            for bid in component_ids:
+                state.release(bid)
 
     assignments = []
     for bid, c in state.placed.items():

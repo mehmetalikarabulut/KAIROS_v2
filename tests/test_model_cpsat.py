@@ -12,21 +12,21 @@ def _sec(sid, level, students, blocks, instr="i1", cohort="D-1"):
     return s
 
 
-def test_gen_candidates_respects_capacity_and_window():
+def test_gen_candidates_keeps_capacity_shortfall_rescue_and_respects_window():
     cfg = Config(blackout=(("Fr", 13, False),))
     rooms = [Room("R1", 30, False, True), Room("R2", 10, False, True)]
     instr = Instructor("i1", "n", False, "D")
     b = Block("S_01#T", "S_01", "theory", 3, False)
     s = _sec("S_01", 1, 25, [b])
     cands = model_cpsat.gen_candidates(b, s, [instr], rooms, cfg)
-    assert all(c.room == "R1" for c in cands)
+    assert {c.room for c in cands} == {"R1", "R2"}
     assert all(c.start + b.length <= cfg.undergrad_end for c in cands)
     assert not any(c.day == "Fr" and c.start <= 13 < c.start + b.length for c in cands)
 
 
 def test_gen_candidates_lab_pinned_to_lab_room():
     cfg = Config()
-    rooms = [Room("R1", 50, False, True), Room("LAB-L", 50, True, True)]
+    rooms = [Room("R1", 50, False, True), Room("LAB-L", 50, True, True, type="pc_lab")]
     instr = Instructor("i1", "n", False, "D")
     b = Block("S_01#L", "S_01", "lab", 2, True)
     s = _sec("S_01", 1, 20, [b])
@@ -128,14 +128,14 @@ def test_feasible_rooms_best_fit_caps_and_prefers_smallest():
     assert chosen == ["SMALL", "MED"]   # smallest two that fit >=25, TINY excluded
 
 
-def test_split_roomable_separates_oversize():
+def test_split_roomable_keeps_oversize_as_soft_capacity_case():
     cfg = Config()
     rooms = [Room("R1", 50, False, True)]
     small = _sec("S1_01", 1, 40, [Block("S1_01#T", "S1_01", "theory", 2, False)])
     big = _sec("S2_01", 1, 500, [Block("S2_01#T", "S2_01", "theory", 2, False)])
-    roomable, oversize = model_cpsat.split_roomable([small, big], rooms, cfg)
-    assert [s.section_id for s in roomable] == ["S1_01"]
-    assert len(oversize) == 1 and oversize[0]["section_id"] == "S2_01"
+    roomable, unschedulable = model_cpsat.split_roomable([small, big], rooms, cfg)
+    assert [s.section_id for s in roomable] == ["S1_01", "S2_01"]
+    assert unschedulable == []
 
 
 def test_build_and_solve_tiny_feasible_instance():

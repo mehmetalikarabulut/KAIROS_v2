@@ -34,18 +34,25 @@ def _make_blocks(section_id, kind, tag, total, max_len, needs_lab) -> List[Block
 
 def blocks_from_tpl(section_id: str, T: int, P: int, L: int, Cr: int,
                     max_block_len: int = 4, max_theory_session: int = 2) -> List[Block]:
+    """Create one uninterrupted placement per teaching component.
+
+    A component may be several weekly hours long, but it is one lesson: a
+    different course must never be inserted between parts of it.  The historical
+    length parameters are intentionally retained in the public signature for
+    compatibility with callers and saved settings, but no longer split T/P/L.
+    """
     blocks: List[Block] = []
     theory_len = T or 0
     lab_len = L or 0
     if theory_len > 0:
-        blocks += _make_blocks(section_id, "theory", "T", theory_len, max_theory_session, False)
+        blocks.append(Block(f"{section_id}#T", section_id, "theory", theory_len, False))
     if P:
-        blocks += _make_blocks(section_id, "practice", "P", P, max_block_len, False)
+        blocks.append(Block(f"{section_id}#P", section_id, "practice", P, False))
     if lab_len > 0:
-        blocks += _make_blocks(section_id, "lab", "L", lab_len, max_block_len, True)
+        blocks.append(Block(f"{section_id}#L", section_id, "lab", lab_len, True))
     if not blocks:
         default_len = Cr if (Cr and Cr > 0) else 3
-        blocks += _make_blocks(section_id, "theory", "T", default_len, max_theory_session, False)
+        blocks.append(Block(f"{section_id}#T", section_id, "theory", default_len, False))
     return blocks
 
 

@@ -12,7 +12,7 @@ from .route import mark_virtual, mark_lab_rooms
 from .model_cpsat import split_roomable
 from .pipeline import run_pipeline
 from .report import data_quality_report, parse_existing, mode_b_benchmark
-from .export import write_schedule_json, write_csv
+from .export import SCHEDULE_OUTPUT_DIR, write_schedule_json, write_csv, write_room_reservations_csv
 from .csv_import import read_raw, parse_courselist, ok_rows, parse_classrooms, ok_rooms
 from .ui_input import (build_sections_from_courselist,
                        build_instructors_from_courselist, build_rooms_from_ui)
@@ -38,7 +38,8 @@ def main():
                     help="legacy data/ source term: 001 or 002")
     ap.add_argument("--scope", default="all", help='all | department=<substr> | dept=<CODE>')
     ap.add_argument("--mode", default="A,B")
-    ap.add_argument("--out", default="out")
+    ap.add_argument("--out", default=str(SCHEDULE_OUTPUT_DIR),
+                    help="private output directory (defaults outside the source checkout)")
     ap.add_argument("--time-limit", type=float, default=60.0)
     ap.add_argument("--max-rooms-per-block", type=int, default=None,
                     help="cap candidate rooms per block (default from Config=12; lower = smaller/faster model)")
@@ -136,6 +137,8 @@ def main():
         schedule_stem = "schedule" if uploaded else f"schedule_{args.period}"
         write_schedule_json(os.path.join(args.out, f"{schedule_stem}.json"), res.schedule)
         write_csv(os.path.join(args.out, f"{schedule_stem}.csv"), res.schedule)
+        SCHEDULE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+        write_room_reservations_csv(SCHEDULE_OUTPUT_DIR / "room_reservations.csv", res.schedule)
         if viol:
             print("  !! HARD violations:", [f"{v.kind}:{v.detail}" for v in viol[:10]])
         else:

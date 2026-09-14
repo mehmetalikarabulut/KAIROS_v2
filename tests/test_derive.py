@@ -10,8 +10,8 @@ def test_course_level():
 
 
 def test_blocks_from_tpl_theory_only():
-    blocks = derive.blocks_from_tpl("S_01", 3, 0, 0, 3)   # 3h theory -> 2 + 1
-    assert len(blocks) == 2 and sorted(b.length for b in blocks) == [1, 2]
+    blocks = derive.blocks_from_tpl("S_01", 3, 0, 0, 3)
+    assert len(blocks) == 1 and [b.length for b in blocks] == [3]
     assert all(b.kind == "theory" and not b.needs_lab for b in blocks)
 
 
@@ -29,8 +29,8 @@ def test_blocks_practice_separate_from_theory():
 
 
 def test_blocks_zero_defaults_to_three():
-    blocks = derive.blocks_from_tpl("S_01", 0, 0, 0, 3)   # defaults to Cr=3 -> 2 + 1
-    assert len(blocks) == 2 and sorted(b.length for b in blocks) == [1, 2]
+    blocks = derive.blocks_from_tpl("S_01", 0, 0, 0, 3)
+    assert len(blocks) == 1 and [b.length for b in blocks] == [3]
 
 
 def test_build_sections_excludes_grad_and_internship():
@@ -58,7 +58,7 @@ def test_section_carries_plan_room():
     assert secs[0].plan_room == "Online"
 
 
-def test_build_sections_applies_max_theory_session_only_to_undergrad():
+def test_build_sections_keeps_theory_uninterrupted_for_all_levels():
     import pandas as pd
     from timetabling.derive import build_sections
     from timetabling.config import Config
@@ -79,7 +79,7 @@ def test_build_sections_applies_max_theory_session_only_to_undergrad():
     secs, _ = build_sections(frame, Config(max_theory_session=2))
     by_id = {s.section_id: s for s in secs}
 
-    assert sorted(b.length for b in by_id["PSY 303_01"].blocks) == [1, 2]
+    assert [b.length for b in by_id["PSY 303_01"].blocks] == [3]
     assert [b.length for b in by_id["PSY 503_01"].blocks] == [3]
 
 

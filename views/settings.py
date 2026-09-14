@@ -143,7 +143,14 @@ def _constraints_csv(lang: str) -> None:
                 st.warning("Önce bir CSV seçin." if tr else "Choose a CSV first.")
                 return
             try:
-                incoming = parse_constraints_csv(uploaded.getvalue().decode("utf-8-sig"))
+                settings = st.session_state.get("settings", {})
+                incoming = parse_constraints_csv(
+                    uploaded.getvalue().decode("utf-8-sig"),
+                    day_start=int(settings.get("day_start", 9)),
+                    day_end=int(settings.get("day_end", 18)),
+                    days=("Mo", "Tu", "We", "Th", "Fr", "Sa") if settings.get("include_saturday")
+                    else ("Mo", "Tu", "We", "Th", "Fr"),
+                )
                 merged = merge_constraints(maps, incoming, replace_all=replace)
             except (UnicodeDecodeError, ValueError) as exc:
                 st.error(str(exc))
@@ -188,14 +195,6 @@ def _policy(lang: str, s: dict) -> None:
                                    s.get("grad_start", 18), "set_grad_start",
                                    help=t("set_grad_start_help", lang))
     _grad_by_dept(lang, s, c4)
-    c4, c5, _ = st.columns(3)
-    s["max_theory_session"] = c4.number_input(t("set_max_theory", lang), min_value=1,
-                                              max_value=6, value=int(s["max_theory_session"]),
-                                              step=1, help=t("set_max_theory_help", lang),
-                                              key="set_maxtheory")
-    s["max_block_len"] = c5.number_input(t("set_max_block", lang), min_value=1, max_value=8,
-                                         value=int(s["max_block_len"]), step=1,
-                                         help=t("set_max_block_help", lang), key="set_maxblock")
     s["saturday"] = st.toggle(t("set_saturday", lang), value=bool(s["saturday"]),
                               help=t("set_saturday_help", lang), key="set_sat")
 

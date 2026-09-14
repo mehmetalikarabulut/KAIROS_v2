@@ -24,18 +24,15 @@ and where it lives (pruning, model relation, or objective).
 
 - **Fixed inputs:** each section's instructor(s), Section Capacity (quota), and T/P/L hours.
 - **Decided:** for every block of every section, a `(room, day, start-hour)`.
-- A section is split into **blocks**: undergraduate theory hours `T` into sessions of at most
-  `max_theory_session` h (default 2; e.g. `T=3 → 2+1`), plus independent Practice blocks from `P` and Lab blocks from `L` hours
-  (each split at max_block_len, default 4). Graduate theory ignores
-  `max_theory_session`; `theory_session_cap_for_level()` keeps `T ≤ 3` as one block and
-  splits longer graduate theory at a 3 h cap so it can fit the 18:00-21:00 window. Each block
-  is placed once. Both user-facing thresholds are tunable via School Settings.
+- A section has one uninterrupted block for each nonzero component: Theory `T`,
+  Practice `P`, and Lab `L`. Components form a hard Theory → Practice → Lab
+  sequence on the same day, so another subject cannot be inserted between them.
 
 ### Hard constraints — enforced by candidate pruning (per block)
 
 A placement that breaks one of these is never even generated, so it cannot occur.
 
-- **Capacity** — a block goes only in a room whose capacity ≥ the section's size. The virtual
+- **Capacity** — a block prefers a room whose capacity ≥ the section's size. The virtual
   `Online` room is exempt (unlimited).
 - **Room matching** — physical rooms must match the block-aware category and capacity.
   P/L use the explicit section category; Theory in a mixed section uses classroom.
@@ -135,7 +132,8 @@ time. The CP-SAT monolith (§6a) and the repair soft polish (§6b) use separate 
   (CP-SAT monolith).
 - **Room utilisation** (`w_room_util=1`) — penalize `(room_cap − students) / room_cap` per
   placed block (waste fraction, 0–1); discourages assigning small classes to very large
-  auditoriums, independent of absolute room size. Hard capacity (room must fit) is unchanged.
+  auditoriums, independent of absolute room size. Capacity shortfall is also strongly
+  penalized, but remains a soft diagnostic so a compatible undersized room can rescue a solve.
   Virtual rooms exempt. Applies to both the CP-SAT monolith and the repair solver
   (greedy, LNS sub-model, and soft polish).
 - **Compact teaching days** (`w_nonadjacent`; UI default 10.0/medium, `Config()` default 0.0) —
@@ -230,15 +228,10 @@ disabled in the UI (§8.5).
 
 **Blocks** are derived from a section's T/P/L hours:
 
-- Undergraduate theory hours $T$ split into sessions of at most `max_theory_session` h
-  (default 2 h; e.g. $T{=}3 \to 2+1$). Different-day placement is a soft preference.
-  Graduate theory splits at **3 h** max per
-  session: $T \le 3$ → single block unchanged; $T = 4$ → 2+2; $T = 6$ → 3+3
-  (fits the 18:00–21:00 evening window).
-- One lab block of $L$ hours, split at `max_block_len` h (default 4 h), pinned to the
-  section's real lab room.
-- Block ids: single `#T` / `#L`; split `#T1..#Tk` / `#L1..#Lk`. Kind detected by
-  `"#L" in block_id`; `section_id = block_id.split("#")[0]`.
+- Each nonzero Theory, Practice, and Lab component is one uninterrupted block.
+  Its duration is exactly the corresponding T/P/L value, so every scheduled hour
+  is consecutive.
+- Block ids are `#T`, `#P`, and `#L`; `section_id = block_id.split("#")[0]`.
 
 ---
 
@@ -614,7 +607,9 @@ $$
 
 - Penalizes the **waste fraction** `(cap_r − n_s) / cap_r ∈ [0, 1)` per placed block, not the raw seat slack. A 10-student section in a 200-seat auditorium (fraction 0.95) is penalized only slightly more than in a 100-seat room (fraction 0.90), rather than 2× more as the raw formula would give.
 - Discourages assigning small classes to very large auditoriums; rooms that exactly fit are preferred.
-- Hard capacity (`cap_r ≥ n_s`) is enforced by candidate pruning and is **never relaxed**.
+- Room capacity is soft: candidates include compatible undersized rooms and a strong
+  shortfall penalty prefers sufficient capacity whenever it exists. A shortfall never
+  relaxes room type, ownership, reservation, or occupancy constraints.
 - Virtual rooms (cap = 0) are exempt via the `c.cap > 0` guard.
 - CP-SAT monolith uses integer-scaled form `100 × (cap_r − n_s) // cap_r` (percentage, 0–99); repair `_cand_soft` and the move-based polish (`_global_terms` / `_norm_obj`) use the float fraction directly.
 
@@ -930,8 +925,6 @@ every bad field falls back to its default and the solve proceeds.
 |---|---|---|---|
 | Day start | 6–12 | `horizon_start` | earliest start hour (default 09:00) |
 | Day end | 13–21 | `undergrad_end` | undergrad end-of-day window (default 18:00) |
-| Max theory session | 1–6 | `max_theory_session` | longest single undergraduate theory session before splitting (default 2 h); graduate theory is capped at 3 h per session regardless of this setting (T ≤ 3 → single block; T > 3 → split at 3 h max) |
-| Max block length | 1–8 | `max_block_len` | longest Practice/Lab block before splitting (default 4 h) |
 | Instructor-days target | No target / ≤4 / ≤3 / ≤2 | `max_instr_days` + `w_instr_days` | No target → term off (weight forced 0); ≤4/≤3/≤2 sets target and activates the instr_days soft term; **No target is the default** (opt-in). See §5.1. |
 | Saturday | checkbox | `saturday_enabled` | add Sa to the teaching week |
 | Graduate | (always True — not a UI control; hardcoded `s["include_grad"] = True` in `views/settings.py`) | `include_grad` | graduate courses are always scheduled; the field exists in `Config` and `DEFAULT_SETTINGS` but no checkbox is rendered. |

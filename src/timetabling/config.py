@@ -131,6 +131,7 @@ class Config:
     eng_department_match: str = "Engineering"
     w_nonadjacent: float = 0.0
     w_room_util: int = 1   # soft: penalize (room_cap - students) per placed block; 0 = off
+    w_capacity_shortfall: int = 1000  # soft but dominant: seats missing from an assigned physical room
     w_instr_days: float = 10.0
     w_parttime_days: float = 14.0
     # apply cohort-conflict soft shaping in the repair greedy construction

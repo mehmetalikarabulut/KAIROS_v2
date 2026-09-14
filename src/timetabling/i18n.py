@@ -428,7 +428,7 @@ STRINGS = {
         "set_day_end": "Last class hour · undergrad",
         "set_day_end_help": "Hard cutoff: undergraduate sessions must finish by this hour. E.g. 18 → 18:00.",
         "set_max_theory": "Max theory session (h)",
-        "set_max_theory_help": "Maximum length of a single undergraduate theory session (hours). An undergraduate course with T=3 is split into 2+1 sessions when this is 2. This limit does not apply to master's or doctoral courses.",
+        "set_max_theory_help": "Teaching components are scheduled as uninterrupted consecutive lessons.",
         "set_max_block": "Lab session max length (h)",
         "set_max_block_help": "Maximum continuous hours for a single lab/practical session; long lab blocks are split at this limit. Theory sessions use the separate 'Max theory session' setting.",
         "set_saturday": "Saturday as a class day",

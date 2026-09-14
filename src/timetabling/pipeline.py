@@ -55,6 +55,20 @@ def _unmet_min_working_days(assignments: list, sections: list) -> list:
     return out
 
 
+def _capacity_shortfalls(assignments: list, sections: list, rooms: Dict) -> list:
+    """Return capacity deficits as exported soft diagnostics, never hard errors."""
+    by_id = {s.section_id: s for s in sections}
+    out = []
+    for a in assignments:
+        section, room = by_id.get(a.section_id), rooms.get(a.room)
+        if section and room and not room.is_virtual and room.cap < section.students:
+            out.append({"kind": "capacity_shortfall", "block_id": a.block_id,
+                        "section_id": a.section_id, "required_seating": section.students,
+                        "room": a.room, "room_capacity": room.cap,
+                        "shortfall": section.students - room.cap})
+    return out
+
+
 def run_pipeline(period: str, sections: list, rooms: Dict, instructors: Dict,
                  cfg: Config, solver: str = "auto", progress_cb=None) -> PipelineResult:
     t_total = time.perf_counter()
@@ -92,9 +106,11 @@ def run_pipeline(period: str, sections: list, rooms: Dict, instructors: Dict,
     _emit("validate_done", violations=len(viol),
           elapsed_s=round(time.perf_counter() - t0, 3))
 
+    unmet_soft = _unmet_min_working_days(assignments, schedulable)
+    unmet_soft.extend(_capacity_shortfalls(assignments, schedulable, rooms))
     schedule = build_schedule_dict(
         period, assignments, schedulable, rooms, instructors,
-        unmet_soft=_unmet_min_working_days(assignments, schedulable),
+        unmet_soft=unmet_soft,
         conflicts=[{"kind": v.kind, "detail": v.detail} for v in viol])
 
     total_elapsed_s = round(time.perf_counter() - t_total, 3)

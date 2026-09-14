@@ -44,9 +44,6 @@ def validate(assignments: List[Assignment], sections: List[Section],
                         for day, start, end in room.reservations):
             viol.append(Violation("room_reserved", f"{a.block_id}: {a.room} overlaps a room reservation"))
         is_virt = (room is not None and room.is_virtual) or (a.room == cfg.online_room and s.is_virtual)
-        if not is_virt and room is not None and room.cap < s.students:
-            viol.append(Violation("capacity",
-                        f"{a.block_id} in {a.room} (cap {room.cap}) < {s.students} students"))
         if a.kind == "lab" and not is_virt and s.lab_room and a.room != s.lab_room:
             viol.append(Violation("lab_room",
                         f"{a.block_id} lab not in pinned {s.lab_room} (got {a.room})"))
@@ -88,6 +85,16 @@ def validate(assignments: List[Assignment], sections: List[Section],
             for iid in s.human_ids(a.kind):
                 instr_occ[(iid, a.day, hh)].append(a.block_id)
             section_occ[(a.section_id, a.day, hh)].append(a.block_id)
+
+    # Independent check of the hard Theory → Practice → Lab sequence.
+    assignment_by_block = {a.block_id: a for a in assignments}
+    for s in sections:
+        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        for previous, current in zip(components, components[1:]):
+            left, right = assignment_by_block.get(previous.block_id), assignment_by_block.get(current.block_id)
+            if left and right and (left.day != right.day or left.end != right.start):
+                viol.append(Violation("component_sequence",
+                            f"{s.section_id}: {previous.kind} must end where {current.kind} begins"))
 
     for (room, day, hh), bids in room_occ.items():
         if len(bids) > 1:

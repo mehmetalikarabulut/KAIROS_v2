@@ -9,7 +9,9 @@ time boundaries, and command-line usage.
 CSV headers map to canonical rows in `csv_import`; `ui_input` builds Sections,
 Instructors and Rooms. `derive.blocks_from_tpl` creates independent Theory (`#T`),
 Practice (`#P`) and Lab (`#L`) blocks, adding numbered suffixes for split sessions.
-T never includes P. Existing theory session caps remain; P and L use max_block_len.
+T never includes P. Each nonzero T, P, or L component is scheduled as one
+uninterrupted consecutive lesson; another subject cannot be inserted between
+its hours.
 Zero total hours retain the legacy credit/default-three-hour theory fallback.
 
 Section stores instructor_ids separately from assistant_ids and assistant_names.
@@ -147,5 +149,8 @@ Some legacy integration tests require external datasets that are not distributed
 
 Bundled course and room examples use generic role labels. Actual course inputs,
 exported schedules, credentials, and local logs must stay outside source control.
+KAIROS saves generated schedules to
+`/Users/mehmetalikarabulut/Projects/kairos_v2_schedules`, which is outside the
+Git checkout and is never pushed by the application.
 Analytics is unconfigured by default. Deployment owners may explicitly set
 KAIROS_ANALYTICS_ID and KAIROS_SITE_URL. Required license notices are retained.

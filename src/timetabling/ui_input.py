@@ -145,12 +145,16 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
     sections: List[Section] = []
     report = {"missing_email": 0, "missing_hours": 0}
     _merge_parallel_policies_from_rows(rows, cfg)
+    seen_section_ids = set()
     for r in rows:
         code = str(r.get("Course Code", "")).strip()
         if not code:
             continue
-        sec_no = str(r.get("Section No", "")).strip()
-        sid = section_id_for(code, sec_no)
+        # A semicolon-separated Section No denotes separate class instances,
+        # not a label for one shared instance.  Keep the first occurrence of an
+        # identity so a later summary row ("1;2") cannot duplicate individual
+        # rows ("1", "2").
+        section_numbers = [part.strip() for part in str(r.get("Section No", "")).split(";") if part.strip()] or [""]
         _, year, _ = cohort_from_code(code)
         department = str(r.get("Dept", "")).strip()
         dept = dept_code_for(r)                              # code prefix, UNK -> DEPT fallback
@@ -161,7 +165,7 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
         L = parse_int(r.get("L"), 0)
         if (T + P + L) == 0:
             report["missing_hours"] += 1
-        # Section Capacity (quota) is the hard size; ~Students (actual) is the fallback.
+        # Section Capacity (quota) is the seating requirement; ~Students is the fallback.
         students = (parse_int(r.get("Section Capacity"), 0)
                     or parse_int(r.get("~Students"), 0) or 1)
         rtype = _room_type_demand(r.get("Room Type"))
@@ -169,24 +173,29 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
         min_days = parse_int(r.get("Min Working Days"), 0)
         min_days = min(max(min_days, 0), len(cfg.days()))
         level = effective_course_level(r)
-        sections.append(Section(
-            section_id=sid, period=period, code=code,
-            name=str(r.get("Course Name", "")).strip(),
-            level=level, dept_code=dept, department=department,
-            cohort_key=cohort, instructor_ids=list(people_for_row(r, "Instructor")), students=students,
-            T=T, P=P, L=L, Cr=(T + P + L), category="",
-            blocks=blocks_from_tpl(sid, T, P, L, T + P + L,
-                                   cfg.max_block_len,
-                                   theory_session_cap_for_level(T, P, T + P + L, level, cfg)),
-            plan_room="",
-            requires_lab_room=(rtype in ("pc_lab", "electronics_lab")),
-            is_virtual=(rtype == "online"),
-            assistant_ids=list(people_for_row(r, "Assistant")),
-            assistant_names=people_for_row(r, "Assistant"),
-            required_room_type=rtype,
-            fixed_day=fixed_day, fixed_start=fixed_start,
-            min_working_days=min_days,
-        ))
+        for sec_no in section_numbers:
+            sid = section_id_for(code, sec_no)
+            if sid in seen_section_ids:
+                continue
+            seen_section_ids.add(sid)
+            sections.append(Section(
+                section_id=sid, period=period, code=code,
+                name=str(r.get("Course Name", "")).strip(),
+                level=level, dept_code=dept, department=department,
+                cohort_key=cohort, instructor_ids=list(people_for_row(r, "Instructor")), students=students,
+                T=T, P=P, L=L, Cr=(T + P + L), category="",
+                blocks=blocks_from_tpl(sid, T, P, L, T + P + L,
+                                       cfg.max_block_len,
+                                       theory_session_cap_for_level(T, P, T + P + L, level, cfg)),
+                plan_room="",
+                requires_lab_room=(rtype in ("pc_lab", "electronics_lab")),
+                is_virtual=(rtype == "online"),
+                assistant_ids=list(people_for_row(r, "Assistant")),
+                assistant_names=people_for_row(r, "Assistant"),
+                required_room_type=rtype,
+                fixed_day=fixed_day, fixed_start=fixed_start,
+                min_working_days=min_days,
+            ))
     return sections, report
 
 
@@ -245,7 +254,6 @@ _REQUIRED = (
     "Course Code", "Course Name", "Dept",
     "Section No", "Instructor Name",
     "T", "P", "L",
-    "Section Capacity",
 )
 
 
@@ -254,6 +262,8 @@ def validate_courselist(rows: List[Dict]) -> List[Tuple[str, Dict]]:
     if not rows:
         return [("warn_no_rows", {})]
     missing = [c for c in _REQUIRED if c not in rows[0]]
+    if not ({"Section Capacity", "~Students"} & set(rows[0])):
+        missing.append("Section Capacity or ~Students")
     if missing:
         return [("warn_missing_cols", {"cols": ", ".join(missing)})]
     warns: List[Tuple[str, Dict]] = []

@@ -3,7 +3,6 @@ from html import escape
 import queue as _queue
 import threading
 import time as _time
-from pathlib import Path
 
 import streamlit as st
 
@@ -16,8 +15,7 @@ from timetabling.ui_input import (build_sections_from_courselist,
                                   classrooms_is_valid, courselist_is_valid)
 from timetabling.route import mark_virtual
 from timetabling.pipeline import run_pipeline, AUTO_REPAIR_THRESHOLD
-from timetabling.export import write_schedule_outputs, load_ref_schedule
-from timetabling.cloud_storage import upload_outputs_if_configured
+from timetabling.export import SCHEDULE_OUTPUT_DIR, write_schedule_outputs, load_ref_schedule
 from timetabling.i18n import t
 from timetabling.ui_style import eyebrow_html
 
@@ -284,13 +282,9 @@ def render(lang: str) -> None:
             raise _error[0]
 
         res = _result[0]
-        written = write_schedule_outputs(
-            Path("out"), res.schedule, period=_PERIOD, include_period=False
+        write_schedule_outputs(
+            SCHEDULE_OUTPUT_DIR, res.schedule, period=_PERIOD, include_period=False
         )
-        try:
-            upload_outputs_if_configured(written)
-        except Exception as exc:
-            st.warning(f"Cloud Storage upload failed: {exc}")
         st.session_state["result"] = res
         st.success(t("solve_done", lang, a=len(res.assignments),
                      v=len(res.violations), u=len(res.unschedulable)))

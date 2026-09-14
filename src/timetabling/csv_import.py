@@ -31,8 +31,8 @@ COURSE_COL_MAP: Dict[str, List[str]] = {
                          "lecturer_email"],
     "~Students":      ["students", "ogrenci", "ogrenci_sayisi", "booked_cap",
                        "enrolled", "kayitli", "size", "approx_students", "students_counts_in_the_section"],
-    # Section Capacity = the quota (hard room-sizing input). ~Students = actual /
-    # expected enrolment (optional, soft). Distinct fields: SECT_CAP vs BOOKED_CAP.
+    # Section Capacity = the quota (preferred seating requirement). ~Students is
+    # the reported-enrolment fallback. Distinct fields: SECT_CAP vs BOOKED_CAP.
     # Kept after ~Students so the original 9-column positional layout is unchanged.
     "Section Capacity": ["section_capacity", "sect_cap", "section_cap", "kontenjan",
                          "quota", "kapasite"],

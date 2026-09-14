@@ -20,24 +20,33 @@ def feasible_rooms_for(block: Block, section: Section, rooms: List[Room],
     if section.is_virtual or rt == "online":
         return [virtual_supply(rooms, cfg.online_room)]
     mixed = any(b.kind in ("practice", "lab") for b in section.blocks)
-    explicit = rt and (block.kind != "theory" or not mixed)
-    if explicit:
+    if block.needs_lab:
+        # Lab teaching uses a PC laboratory even when no assistant is named.
+        wanted = {"pc_lab"}
+    elif rt == "online":
+        return [virtual_supply(rooms, cfg.online_room)]
+    elif rt and not mixed:
         wanted = {rt}
-    elif block.needs_lab or section.requires_lab_room and not mixed:
+    elif section.requires_lab_room and not mixed:
         wanted = {"pc_lab", "electronics_lab"}
     else:
         wanted = {"classroom"}
-    fr = [r for r in rooms if r.is_physical and r.type in wanted
-          and r.cap >= section.students]
+    # Capacity is soft: preserve undersized compatible rooms as rescue choices.
+    fr = [r for r in rooms if r.is_physical and r.type in wanted]
     if block.needs_lab and section.lab_room:
         fr = [r for r in fr if r.room == section.lab_room]
     # Dept ownership: if a room declares owner dept(s), restrict to sections
     # whose department matches one of them. Empty dept = open to all.
     if fr and section.department:
-        fr = [r for r in fr if not r.dept or section.department in {
-            d.strip() for d in r.dept.split(";") if d.strip()
+        # A multi-department offering may use a room owned by any listed
+        # department; ownership is still never an exemption from occupancy.
+        course_depts = {d.strip().casefold() for d in section.department.split(";") if d.strip()}
+        fr = [r for r in fr if not r.dept or course_depts & {
+            d.strip().casefold() for d in r.dept.split(";") if d.strip()
         }]
-    fr.sort(key=lambda r: (r.cap, r.room))
+    fr.sort(key=lambda r: (r.cap < section.students,
+                           (r.cap - section.students) if r.cap >= section.students
+                           else (section.students - r.cap), r.room))
     return fr[:cfg.max_rooms_per_block]
 
 
@@ -60,7 +69,7 @@ def split_roomable(sections, rooms, cfg, instructors=None):
             if gen_candidates(b, s, ins_list, rooms, cfg):
                 continue
             if not feasible_rooms_for(b, s, rooms, cfg):
-                issues.append([b.block_id, "no room with sufficient capacity"])
+                issues.append([b.block_id, "no compatible room type or department eligibility"])
             else:
                 from dataclasses import replace
                 without_assistant = replace(cfg, assistant_unavailable=frozenset())
@@ -134,6 +143,8 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
     room_util_terms = []
     avoid_terms = []
     prefer_miss_terms = []
+    placement_day = {}
+    placement_start = {}
     code_day_hour_vars = defaultdict(list)  # (code, day, hour) -> vars (for avoid_pairs)
     sbd = defaultdict(list)  # (section_id, block_id, day) -> vars (multi-block sections)
 
@@ -188,6 +199,8 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
                 waste = c.cap - s.students
                 if waste > 0:
                     room_util_terms.append(cfg.w_room_util * (100 * waste // c.cap) * v)
+            if c.cap > 0 and not s.is_virtual and c.cap < s.students:
+                room_util_terms.append(cfg.w_capacity_shortfall * (s.students - c.cap) * v)
             if s.code in _avoid_pair_codes:
                 for hh in range(c.start, c.start + c.length):
                     code_day_hour_vars[(s.code, c.day, hh)].append(v)
@@ -232,6 +245,23 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
                 if prime_hours:
                     dept_primetime_terms[dept].append(prime_hours * v)
         model.AddExactlyOne(bvars)   # H1
+        day = model.NewIntVar(0, len(cfg.days()) - 1, f"day|{b.block_id}")
+        start = model.NewIntVar(cfg.horizon_start, cfg.horizon_end, f"start|{b.block_id}")
+        day_index = {name: idx for idx, name in enumerate(cfg.days())}
+        model.Add(day == sum(day_index[c.day] * v for c, v in zip(cands, bvars)))
+        model.Add(start == sum(c.start * v for c, v in zip(cands, bvars)))
+        placement_day[b.block_id] = day
+        placement_start[b.block_id] = start
+
+    # T/P/L are one course sequence. The components keep their separate rooms
+    # and staff requirements, but each next component starts exactly when the
+    # previous one ends on the same day.
+    for s in sections:
+        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        for previous, current in zip(components, components[1:]):
+            if previous.block_id in placement_day and current.block_id in placement_day:
+                model.Add(placement_day[current.block_id] == placement_day[previous.block_id])
+                model.Add(placement_start[current.block_id] == placement_start[previous.block_id] + previous.length)
 
     # H2/H3/H_self: at most one occupant per resource-slot
     for occ in (room_occ, instr_occ, section_occ):

@@ -1644,8 +1644,8 @@ _REQUIRED_COURSE_FIELDS = (
     "Course Code", "Course Name", "Dept",
     "Section No", "Instructor Name",
     "T", "P", "L",
-    "Section Capacity",
 )
+_SEATING_FIELDS = ("Section Capacity", "~Students")
 
 
 def detected_columns_html(detected: list, lang: str = DEFAULT_LANG,
@@ -1656,7 +1656,8 @@ def detected_columns_html(detected: list, lang: str = DEFAULT_LANG,
     if not detected:
         return ""
 
-    if required is None:
+    course_import = required is None
+    if course_import:
         required = _REQUIRED_COURSE_FIELDS
 
     def _chip(d):
@@ -1681,9 +1682,15 @@ def detected_columns_html(detected: list, lang: str = DEFAULT_LANG,
     # name and guessed by position — a low-confidence mapping worth flagging.
     has_header = any(d["source"] == "header" for d in detected)
     missing_req = [f for f in required if f not in detected_by_field]
+    has_seating = any(f in detected_by_field for f in _SEATING_FIELDS)
+    if course_import and not has_seating:
+        missing_req.append("Section Capacity or ~Students")
     guessed_req = [] if missing_req else [
         f for f in required
         if has_header and detected_by_field[f]["source"] != "header"]
+    if course_import and not missing_req and has_header:
+        guessed_req.extend(f for f in _SEATING_FIELDS
+                           if f in detected_by_field and detected_by_field[f]["source"] != "header")
     _icon_met = ('<svg class="imp-req-icon" viewBox="0 0 16 16" fill="none" '
                  'xmlns="http://www.w3.org/2000/svg">'
                  '<circle cx="8" cy="8" r="7" stroke="currentColor" stroke-width="1.5"/>'

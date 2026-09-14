@@ -59,8 +59,27 @@ def test_tpl_distinct_and_split_ids():
     bs = blocks_from_tpl("X_1", 2, 1, 2, 5)
     assert [(b.block_id, b.kind, b.length) for b in bs] == [
         ("X_1#T", "theory", 2), ("X_1#P", "practice", 1), ("X_1#L", "lab", 2)]
-    assert [b.block_id for b in blocks_from_tpl("X", 4, 5, 5, 14)] == [
-        "X#T1", "X#T2", "X#P1", "X#P2", "X#L1", "X#L2"]
+    assert [(b.block_id, b.length) for b in blocks_from_tpl("X", 4, 5, 5, 14)] == [
+        ("X#T", 4), ("X#P", 5), ("X#L", 5)]
+
+
+def test_theory_practice_and_lab_are_consecutive_and_lab_uses_pc_without_assistant():
+    from timetabling.pipeline import run_pipeline
+    from timetabling.model import Room
+
+    course = row() | {"T": "1", "P": "1", "L": "1", "Assistant Name": "", "Room Type": ""}
+    sections, _ = build_sections_from_courselist([course], "001", Config(solve_time_limit_s=5))
+    instructors = build_instructors_from_courselist([course])
+    rooms = {
+        "Classroom": Room("Classroom", 40, False, True, type="classroom"),
+        "PC Lab": Room("PC Lab", 40, True, True, type="pc_lab"),
+    }
+    result = run_pipeline("001", sections, rooms, instructors, Config(solve_time_limit_s=5), solver="cpsat")
+    by_kind = {a.kind: a for a in result.assignments}
+    assert by_kind["theory"].day == by_kind["practice"].day == by_kind["lab"].day
+    assert by_kind["theory"].end == by_kind["practice"].start
+    assert by_kind["practice"].end == by_kind["lab"].start
+    assert by_kind["lab"].room == "PC Lab"
 
 
 def test_assistant_only_pl_and_joint_availability():
@@ -126,7 +145,8 @@ def test_exact_room_type_and_mixed_theory(rt):
     secs, rooms, _, cfg = setup([row(**{"Room Type":rt})])
     s=secs[0]
     for b in s.blocks:
-        assert {r.type for r in feasible_rooms_for(b,s,list(rooms.values()),cfg)} == ({"classroom"} if b.kind=="theory" else {rt})
+        expected = {"pc_lab"} if b.kind == "lab" else {"classroom"}
+        assert {r.type for r in feasible_rooms_for(b, s, list(rooms.values()), cfg)} == expected
 
 
 @pytest.mark.parametrize("solver", ["cpsat", "repair", "decompose"])

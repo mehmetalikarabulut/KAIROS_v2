@@ -24,3 +24,17 @@ def test_invalid_is_rejected_and_merge_or_replace_is_explicit():
         assert "whole-hour" in str(exc)
     else:
         assert False
+
+
+def test_legacy_available_csv_is_converted_without_rounding_extra_hours():
+    parsed = parse_constraints_csv(
+        "Role,Name,Constraint,Day,Start,End\n"
+        "TZ,Instructor A,Available,Monday,09:30,12:30\n"
+        "DSÜ,Instructor B,Unavailable,Friday,,\n"
+    )
+    # Only 10:00–12:00 fits completely in a 09:30–12:30 availability window.
+    assert ["Mo", 9] in parsed["availability"]["instructor a"]
+    assert ["Mo", 10] not in parsed["availability"]["instructor a"]
+    assert ["Mo", 11] not in parsed["availability"]["instructor a"]
+    assert ["Mo", 12] in parsed["availability"]["instructor a"]
+    assert ["Fr", 9] in parsed["availability"]["instructor b"]

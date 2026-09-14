@@ -29,13 +29,14 @@ def test_detects_room_double_book():
     assert "room" in kinds
 
 
-def test_detects_capacity_and_lab_and_window_and_blackout():
+def test_capacity_shortfall_is_not_hard_but_lab_and_blackout_are():
     s = _sec("S_01", 1, 99, [Block("S_01#L", "S_01", "lab", 2, True)], instr="i1")
     s.lab_room = "LAB-L"                         # pinned, but assigned to R1 below
     a = [Assignment("S_01#L", "S_01", "lab", "R1", "Fr", 13, 15)]
     cfg = Config(blackout=(("Fr", 13, False),))
     kinds = {v.kind for v in validate.validate(a, [s], ROOMS, INSTR, cfg)}
-    assert {"capacity", "lab_room", "blackout"} <= kinds
+    assert "capacity" not in kinds
+    assert {"lab_room", "blackout"} <= kinds
 
 
 def test_room_type_requirement_applies_to_lab_block_only_for_mixed_section():
@@ -52,11 +53,11 @@ def test_room_type_requirement_applies_to_lab_block_only_for_mixed_section():
 
     ok = [
         Assignment("S_01#T", "S_01", "theory", "R1", "Mo", 9, 11),
-        Assignment("S_01#L", "S_01", "lab", "PC1", "Tu", 9, 11),
+        Assignment("S_01#L", "S_01", "lab", "PC1", "Mo", 11, 13),
     ]
     wrong_lab = [
         Assignment("S_01#T", "S_01", "theory", "R1", "Mo", 9, 11),
-        Assignment("S_01#L", "S_01", "lab", "R1", "Tu", 9, 11),
+        Assignment("S_01#L", "S_01", "lab", "R1", "Mo", 11, 13),
     ]
 
     assert validate.validate(ok, [s], rooms, instr, Config()) == []

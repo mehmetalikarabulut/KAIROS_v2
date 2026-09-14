@@ -46,7 +46,17 @@ def test_build_sections_from_courselist():
     assert rep["missing_email"] == 0                    # MATH row has blank email
 
 
-def test_courselist_max_theory_session_only_splits_undergrad():
+def test_combined_section_labels_expand_to_independent_sections_without_duplicates():
+    row = {"Course Code": "CMPE 101", "Course Name": "Intro", "Dept": "Engineering",
+           "Section No": "1;2;3", "Instructor Name": "Instructor A", "T": "2", "P": "1", "L": "0",
+           "Section Capacity": "30"}
+    duplicate_summary = row | {"Section No": "1"}
+    sections, _ = build_sections_from_courselist([row, duplicate_summary], "001", Config())
+    assert [s.section_id for s in sections] == ["CMPE 101_1", "CMPE 101_2", "CMPE 101_3"]
+    assert all(sum(b.length for b in s.blocks) == 3 for s in sections)
+
+
+def test_courselist_keeps_theory_uninterrupted_for_all_levels():
     rows = [
         {"Course Code": "PSY 303", "Section No": "01", "T": "3", "P": "0", "L": "0",
          "Instructor Email": "u@example.test", "Section Capacity": "30"},
@@ -56,7 +66,7 @@ def test_courselist_max_theory_session_only_splits_undergrad():
     secs, _ = build_sections_from_courselist(rows, "001", Config(max_theory_session=2))
     by_id = {s.section_id: s for s in secs}
 
-    assert sorted(b.length for b in by_id["PSY 303_01"].blocks) == [1, 2]
+    assert [b.length for b in by_id["PSY 303_01"].blocks] == [3]
     assert [b.length for b in by_id["PSY 503_01"].blocks] == [3]
 
 

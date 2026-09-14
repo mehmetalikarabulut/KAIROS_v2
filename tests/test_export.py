@@ -41,8 +41,28 @@ def test_write_schedule_outputs_creates_out_json_and_csv_with_timestamp(tmp_path
 
     assert written["json"] == tmp_path / "out" / "schedule_001_20260628_140509.json"
     assert written["csv"] == tmp_path / "out" / "schedule_001_20260628_140509.csv"
+    assert written["room_reservations"] == tmp_path / "out" / "room_reservations.csv"
     assert json.loads(written["json"].read_text())["assignments"][0]["section_id"] == "ADA 403_01"
     assert written["csv"].read_text(encoding="utf-8-sig").startswith("section_id,course_code")
+
+
+def test_room_reservations_export_contains_only_physical_assignments(tmp_path):
+    payload = {"assignments": [
+        {"room": "R1", "department": "Engineering", "day": "Mo", "start": 9, "end": 11},
+        {"room": "Online", "room_type": "online", "day": "Mo", "start": 11, "end": 12},
+    ]}
+    path = tmp_path / "room_reservations.csv"
+    export.write_room_reservations_csv(path, payload)
+    assert path.read_text(encoding="utf-8-sig").splitlines() == [
+        "Room,Dept,Day,Start,End", "R1,Engineering,Mo,09:00,11:00",
+    ]
+
+
+def test_private_schedule_output_dir_is_outside_source_checkout():
+    assert export.SCHEDULE_OUTPUT_DIR == export.Path(
+        "/Users/mehmetalikarabulut/Projects/kairos_v2_schedules"
+    )
+    assert "KAIROS_v2" not in export.SCHEDULE_OUTPUT_DIR.parts
 
 
 def test_write_schedule_outputs_can_omit_period_from_filename(tmp_path):

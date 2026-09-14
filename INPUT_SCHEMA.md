@@ -25,7 +25,9 @@ no room is named on a section row, and no section is named on a room row.
 
 ## Table 1 — Sections (course list)
 
-One row per section (a single offering of a course). The importer detects a header
+One row per section (a single offering of a course). A semicolon-separated Section
+identifier such as `1;2;3` expands to three independent class instances; repeated
+identities are not scheduled twice. The importer detects a header
 row and matches each column by **alias** (TR/EN, case-insensitive), so column order
 does not matter — both the clean sample headers (`Course Code`, `Section No`, …) and
 a registrar export's headers (`COURSE_CODE`, `SECTION`, `SECT_CAP`, …) are accepted.
@@ -47,7 +49,7 @@ fallback order.
 | `Assistant Name` | optional | Comma-separated required assistants on Practice/Lab only. Blank means no assistant, even if P/L hours or Assistant Email are filled. |
 | `Assistant Email` | ignored | Not used; may be omitted. |
 | `L` | ✓ | Laboratory hours, scheduled independently from Theory and Practice. See block-aware room matching below. |
-| `Section Capacity` | one of this or `~Students` | **Quota.** The hard room-sizing input when present (`room.Capacity ≥ Section Capacity`). |
+| `Section Capacity` | one of this or `~Students` | **Quota.** Scheduling seating requirement when present. |
 | `~Students` | one of this or `Section Capacity` | Reported enrolment and the room-sizing fallback. `Students counts in the section` is also accepted as an import alias. |
 | `Room Type` | optional | classroom / pc_lab / electronics_lab / online, including legacy aliases. See block-aware matching below. |
 | `Fixed` | optional | Fixed slot for the section's first block (e.g. `"Mo 9"`). |
@@ -95,8 +97,12 @@ substitute for each other. Without demand, legacy Lab accepts either lab categor
 Theory and Practice use classroom. Capacity and ownership apply to physical rooms.
 An explicit physical demand never silently becomes online when supply is too small.
 
-T, P and L produce independent #T, #P and #L blocks. Split blocks get numbered
-suffixes. Theory keeps the existing session cap; P/L use max_block_len.
+T, P and L produce independent #T, #P and #L blocks. When a section has more
+than one component, they form one hard consecutive sequence in this order:
+Theory → Practice → Lab. Their hours are consecutive and no other course can
+be inserted between them. A Lab component always uses a `pc_lab`; it does so
+even when `Assistant Name` is blank—the instructor remains assigned and no
+assistant name is invented.
 
 Assistant aliases: Assistant, Research Assistant, Research Assistant Name, Teaching
 Assistant, Teaching Assistant Name, TA, Araştırma Görevlisi, Arş. Gör., Ars. Gor.,
@@ -115,6 +121,14 @@ Unavailable is hard; Avoid penalizes each occupied marked hour; Prefer penalizes
 P/L block with no preferred-hour intersection. These reuse instructor weights and
 are enforced in both solver paths. Profile helpers retain assistant tiers inside
 Settings. See [SCHEDULING_GUIDE.md](SCHEDULING_GUIDE.md) for examples and manual checks.
+
+The native staff-constraints CSV schema is `Role,Name,Constraint,Day,Start,End`
+with `Instructor`/`Assistant` roles and `Unavailable`, `Avoid`, or `Prefer`
+tiers. The importer also reads the supplied legacy personnel format: `TZ` and
+`DSÜ` are treated as instructors, and its `Available` windows are converted to
+hard unavailability outside their whole teaching hours. Minute boundaries are
+preserved conservatively; an hourly class is allowed only when it fits completely
+inside an available window.
 
 ---
 
@@ -138,11 +152,15 @@ Settings. See [SCHEDULING_GUIDE.md](SCHEDULING_GUIDE.md) for examples and manual
   is full-time.
 
 **Capacity — current implementation.**
-- `Section Capacity` (quota) → the hard capacity input; room matching uses it.
+- `Section Capacity` (quota) → the scheduling seating requirement; `~Students`
+  is used when quota is blank.
 - `~Students` → optional fallback/preview field. When `Section Capacity` is
   present, the solver and exported `section_cap` use `Section Capacity`, not a
   separate actual-enrolment value.
 - A room's `Capacity` → the room's own size (Table 2).
+- Capacity is soft: KAIROS strongly prefers a sufficiently large eligible room,
+  but uses the smallest shortfall when no suitable-size room exists. Shortfalls
+  appear in exported `unmet_soft` diagnostics, not as hard violations.
 
 **What is *not* in either file** (it lives in the **School Settings** step, not the
 upload): institutional policy (day window, weights, blackouts) and per-instructor

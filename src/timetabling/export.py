@@ -14,6 +14,12 @@ CSV_FIELDS = ["section_id", "course_code", "course_name", "block_kind",
               "section_cap", "section_p", "day", "start", "end",
               "room", "room_cap", "is_lab_room", "assistant_id", "assistant_name", "room_type", "is_online"]
 
+# Runtime schedules can contain course, room, and staff information.  Keep them
+# outside the source checkout so they cannot be accidentally staged or pushed
+# with application code.
+SCHEDULE_OUTPUT_DIR = Path("/Users/mehmetalikarabulut/Projects/kairos_v2_schedules")
+ROOM_RESERVATION_FIELDS = ["Room", "Dept", "Day", "Start", "End"]
+
 
 def build_schedule_dict(period, assignments: List[Assignment], sections: List[Section],
                         rooms: Dict[str, Room], instructors: Dict[str, Instructor],
@@ -82,6 +88,26 @@ def write_csv(path: str, payload: dict) -> None:
             w.writerow(item)
 
 
+def write_room_reservations_csv(path: str | Path, payload: dict) -> None:
+    """Write physical schedule assignments as a reusable reservation CSV."""
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        writer = csv.DictWriter(f, fieldnames=ROOM_RESERVATION_FIELDS)
+        writer.writeheader()
+        for item in payload.get("assignments", []):
+            if item.get("is_online") or str(item.get("room_type", "")).casefold() == "online":
+                continue
+            room = str(item.get("room", "")).strip()
+            if not room:
+                continue
+            writer.writerow({
+                "Room": room,
+                "Dept": item.get("department") or item.get("dept", ""),
+                "Day": item.get("day", ""),
+                "Start": f"{int(item['start']):02}:00",
+                "End": f"{int(item['end']):02}:00",
+            })
+
+
 def write_schedule_outputs(
     out_dir: str | Path,
     payload: dict,
@@ -97,7 +123,11 @@ def write_schedule_outputs(
     paths = {
         "json": out / f"{stem}.json",
         "csv": out / f"{stem}.csv",
+        # The latest generated physical schedule is directly usable as the
+        # next run's room_reservations.csv input.
+        "room_reservations": out / "room_reservations.csv",
     }
     write_schedule_json(str(paths["json"]), payload)
     write_csv(str(paths["csv"]), payload)
+    write_room_reservations_csv(paths["room_reservations"], payload)
     return paths
