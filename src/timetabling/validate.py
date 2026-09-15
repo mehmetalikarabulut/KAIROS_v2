@@ -86,10 +86,11 @@ def validate(assignments: List[Assignment], sections: List[Section],
                 instr_occ[(iid, a.day, hh)].append(a.block_id)
             section_occ[(a.section_id, a.day, hh)].append(a.block_id)
 
-    # Independent check of the hard Theory → Practice → Lab sequence.
+    # Theory → Practice is a hard sequence. Lab sessions are assistant-led and
+    # intentionally independent, so they are not included in this check.
     assignment_by_block = {a.block_id: a for a in assignments}
     for s in sections:
-        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        components = [b for b in s.blocks if b.kind in ("theory", "practice")]
         for previous, current in zip(components, components[1:]):
             left, right = assignment_by_block.get(previous.block_id), assignment_by_block.get(current.block_id)
             if left and right and (left.day != right.day or left.end != right.start):

@@ -131,7 +131,10 @@ def render(lang: str) -> None:
     track_event("results_viewed")
 
     sched = res.schedule
-    total_blocks = len(res.assignments) + sum(s.get("n_blocks", len(s.get("issues", []))) for s in res.unschedulable)
+    total_blocks = sched.get("meta", {}).get(
+        "n_required_blocks",
+        len(res.assignments) + sum(s.get("n_blocks", len(s.get("issues", []))) for s in res.unschedulable),
+    )
     placed_pct = (len(res.assignments) / total_blocks * 100) if total_blocks else 0
     conflicts = len(res.violations)
     elapsed = res.stats.get("total_elapsed_s", 0)
@@ -144,6 +147,13 @@ def render(lang: str) -> None:
         (t("res_m_unsched", lang), str(len(res.unschedulable)), "" if not res.unschedulable else "bad"),
         (t("res_m_solve_time", lang), elapsed_str, ""),
     ]), unsafe_allow_html=True)
+
+    missing_blocks = sched.get("missing_blocks", [])
+    if missing_blocks:
+        label = "Taslak program: eksik zorunlu dersler var; final program yayınlanmadı." if lang == "tr" \
+            else "Draft schedule: required blocks are missing; no final schedule was published."
+        st.error(f"{label} ({len(missing_blocks)} missing)")
+        st.dataframe(pd.DataFrame(missing_blocks), use_container_width=True, hide_index=True)
 
     c1, c2 = st.columns([1, 2])
     view_field = c1.selectbox(t("res_view_by", lang), list(VIEW_KEY),
@@ -162,14 +172,19 @@ def render(lang: str) -> None:
     # Downloads — JSON / CSV on one row, then per-dimension PDF buttons.
     with st.container(horizontal=True, horizontal_alignment="center",
                       gap="small"):
+        draft_suffix = ".draft" if missing_blocks else ""
         st.download_button(t("res_dl_json", lang),
                            json.dumps(sched, ensure_ascii=False, indent=2),
-                           file_name="schedule.json",
+                           file_name=f"schedule{draft_suffix}.json",
                            key="dl_json")
         st.download_button(t("res_dl_csv", lang),
                            pd.DataFrame(sched["assignments"], columns=CSV_FIELDS).to_csv(index=False).encode("utf-8-sig"),
-                           file_name="schedule.csv",
+                           file_name=f"schedule{draft_suffix}.csv",
                            key="dl_csv")
+        if missing_blocks:
+            st.download_button("Eksik dersler" if lang == "tr" else "Missing blocks",
+                               json.dumps(missing_blocks, ensure_ascii=False, indent=2),
+                               file_name="unplaced_blocks.json", key="dl_missing_blocks")
 
     # Per-dimension PDF downloads — one button per view dimension.
     _PDF_DIMS = [

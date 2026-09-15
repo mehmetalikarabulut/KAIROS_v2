@@ -63,7 +63,7 @@ def test_tpl_distinct_and_split_ids():
         ("X#T", 4), ("X#P", 5), ("X#L", 5)]
 
 
-def test_theory_practice_and_lab_are_consecutive_and_blank_lab_assistant_is_noted():
+def test_theory_practice_are_consecutive_and_blank_lab_assistant_is_noted():
     from timetabling.pipeline import run_pipeline
     from timetabling.model import Room
 
@@ -76,9 +76,8 @@ def test_theory_practice_and_lab_are_consecutive_and_blank_lab_assistant_is_note
     }
     result = run_pipeline("001", sections, rooms, instructors, Config(solve_time_limit_s=5), solver="cpsat")
     by_kind = {a.kind: a for a in result.assignments}
-    assert by_kind["theory"].day == by_kind["practice"].day == by_kind["lab"].day
+    assert by_kind["theory"].day == by_kind["practice"].day
     assert by_kind["theory"].end == by_kind["practice"].start
-    assert by_kind["practice"].end == by_kind["lab"].start
     assert by_kind["lab"].room == "PC Lab"
     lab_item = next(item for item in result.schedule["assignments"] if item["block_kind"] == "lab")
     assert lab_item["assistant_name"] == "Prof X 101's assistant should schedule here"

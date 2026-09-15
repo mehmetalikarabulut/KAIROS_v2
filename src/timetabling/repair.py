@@ -41,10 +41,10 @@ class State:
 
     def free_to_place(self, c, sid, iids):
         iids = self.human_ids(c.block_id)
-        # Keep a section's T/P/L components as one hard consecutive sequence.
-        # This works whichever component the greedy/repair order places first.
+        # Keep theory/practice consecutive, but never tie a lab to them. Labs
+        # are staffed by assistants and may be scheduled independently.
         s = self.sec_of[c.block_id]
-        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        components = [b for b in s.blocks if b.kind in ("theory", "practice")]
         index = next((i for i, b in enumerate(components) if b.block_id == c.block_id), -1)
         if index > 0:
             previous = self.placed.get(components[index - 1].block_id)
@@ -211,9 +211,13 @@ def greedy_construct(state: State, order: List[str], cand_by_block,
 
 
 def _filter_component_sequences(sections, cand_by_block):
-    """Keep only candidates participating in a complete T→P→L chain."""
+    """Keep only theory/practice candidates participating in a T→P chain.
+
+    Lab candidates are intentionally untouched: an assistant-led lab may be
+    scheduled separately from its lecture components.
+    """
     for s in sections:
-        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        components = [b for b in s.blocks if b.kind in ("theory", "practice")]
         if len(components) < 2:
             continue
         paths = [(candidate,) for candidate in cand_by_block[components[0].block_id]]
@@ -819,8 +823,13 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
     _filter_component_sequences(sections, cand_by_block)
 
     component_index = {b.block_id: i for s in sections for i, b in enumerate(s.blocks)}
+    # Coverage phase: place scarce lab capacity first, then place the remaining
+    # blocks. Quality tuning only starts after repair has tried to cover every
+    # required block.
     order = sorted((b.block_id for b, _ in blocks),
-                   key=lambda bid: (component_index[bid], len(cand_by_block[bid]), -sec_of[bid].students))
+                   key=lambda bid: (not sec_of[bid].block_kind(bid) == "lab",
+                                    component_index[bid], len(cand_by_block[bid]),
+                                    -sec_of[bid].students))
 
     state = State(sec_of, sec_instr, virtual_names)
     t0 = perf_counter()
@@ -892,11 +901,10 @@ def solve_repair(sections, rooms, instructors, cfg, progress_cb=None):
             soft_post = _global_terms(state, cfg)
             soft_polish_rounds = 1
 
-    # Never publish an isolated part of a course sequence. A partial sequence
-    # is less useful than an explicitly unplaced course and would violate the
-    # no-intervening-lesson rule.
+    # Never publish an isolated theory/practice sequence. Labs are independent
+    # assistant-led sessions and must remain eligible on their own.
     for s in sections:
-        component_ids = [b.block_id for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        component_ids = [b.block_id for b in s.blocks if b.kind in ("theory", "practice")]
         placed_components = [state.placed.get(bid) for bid in component_ids]
         consecutive = all(left and right and left.day == right.day and left.start + left.length == right.start
                           for left, right in zip(placed_components, placed_components[1:]))

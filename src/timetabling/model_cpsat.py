@@ -254,11 +254,11 @@ def build_and_solve(sections: List[Section], rooms: List[Room],
         placement_day[b.block_id] = day
         placement_start[b.block_id] = start
 
-    # T/P/L are one course sequence. The components keep their separate rooms
-    # and staff requirements, but each next component starts exactly when the
-    # previous one ends on the same day.
+    # Theory and practice remain a course sequence when both exist.  Labs are
+    # deliberately independent: they are run by the assistant and may take
+    # place on a different day/time from the lecture.
     for s in sections:
-        components = [b for b in s.blocks if b.kind in ("theory", "practice", "lab")]
+        components = [b for b in s.blocks if b.kind in ("theory", "practice")]
         for previous, current in zip(components, components[1:]):
             if previous.block_id in placement_day and current.block_id in placement_day:
                 model.Add(placement_day[current.block_id] == placement_day[previous.block_id])

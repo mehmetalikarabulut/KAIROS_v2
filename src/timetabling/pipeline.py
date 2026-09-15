@@ -106,12 +106,37 @@ def run_pipeline(period: str, sections: list, rooms: Dict, instructors: Dict,
     _emit("validate_done", violations=len(viol),
           elapsed_s=round(time.perf_counter() - t0, 3))
 
+    placed_ids = {a.block_id for a in assignments}
+    missing_blocks = [
+        {"block_id": b.block_id, "section_id": s.section_id,
+         "course_code": s.code, "block_kind": b.kind,
+         "reason": "not placed by solver"}
+        for s in schedulable for b in s.blocks if b.block_id not in placed_ids
+    ]
+    kind_by_tag = {"T": "theory", "P": "practice", "L": "lab"}
+    code_by_section = {s.section_id: s.code for s in sections}
+    missing_blocks.extend(
+        {"block_id": block_id, "section_id": entry["section_id"],
+         "course_code": code_by_section.get(entry["section_id"], ""),
+         "block_kind": kind_by_tag.get(block_id.rsplit("#", 1)[-1][:1], "unknown"),
+         "reason": "; ".join(issue[1] for issue in entry.get("issues", [])) or "no feasible candidate"}
+        for entry in unschedulable for block_id, _reason in entry.get("issues", [])
+    )
+    # A partial result is a draft, never a final schedule. Keep the existing
+    # validation details and add structured entries for user-facing reporting.
+    if missing_blocks:
+        stats["is_complete"] = False
+        stats["missing_blocks"] = missing_blocks
+    else:
+        stats["is_complete"] = True
+        stats["missing_blocks"] = []
     unmet_soft = _unmet_min_working_days(assignments, schedulable)
     unmet_soft.extend(_capacity_shortfalls(assignments, schedulable, rooms))
     schedule = build_schedule_dict(
         period, assignments, schedulable, rooms, instructors,
         unmet_soft=unmet_soft,
-        conflicts=[{"kind": v.kind, "detail": v.detail} for v in viol])
+        conflicts=[{"kind": v.kind, "detail": v.detail} for v in viol],
+        missing_blocks=missing_blocks)
 
     total_elapsed_s = round(time.perf_counter() - t_total, 3)
     stats["total_elapsed_s"] = total_elapsed_s

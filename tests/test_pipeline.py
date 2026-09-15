@@ -23,3 +23,12 @@ def test_run_pipeline_cpsat_places_a_small_problem():
     assert len(res.assignments) == 1
     assert res.schedule["period"] == "001"
     assert res.schedule["assignments"][0]["section_id"] == "CMPE 113_01"
+    assert res.schedule["meta"]["is_complete"] is True
+
+
+def test_run_pipeline_marks_unplaceable_required_block_incomplete():
+    cfg = Config(solve_time_limit_s=2.0)
+    instr = {"a@example.test": Instructor("a@example.test", "Dr A", True, "CMPE")}
+    res = run_pipeline("001", [_section()], {}, instr, cfg, solver="cpsat")
+    assert res.schedule["meta"]["is_complete"] is False
+    assert res.schedule["missing_blocks"][0]["block_id"] == "CMPE 113_01#T"

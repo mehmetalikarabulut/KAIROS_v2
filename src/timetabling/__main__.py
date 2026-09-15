@@ -135,13 +135,23 @@ def main():
         else:
             print(f"[mode-A] decomposed groups={stats['n_groups']} "
                   f"assignments={stats['n_assignments']} violations={len(viol)}")
+        # Incomplete solves are drafts. Do not overwrite/publish schedule.csv
+        # or refresh the reusable room-reservations file with a partial result.
+        complete = res.stats.get("is_complete", not res.violations)
         schedule_stem = "schedule" if uploaded else f"schedule_{args.period}"
+        if not complete:
+            schedule_stem += ".draft"
         output_dir = Path(args.out)
         output_dir.mkdir(parents=True, exist_ok=True)
         write_schedule_json(str(output_dir / f"{schedule_stem}.json"), res.schedule)
         write_csv(str(output_dir / f"{schedule_stem}.csv"), res.schedule)
-        SCHEDULE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-        write_room_reservations_csv(SCHEDULE_OUTPUT_DIR / "room_reservations.csv", res.schedule)
+        if not complete:
+            with open(output_dir / f"{schedule_stem}.unplaced_blocks.json", "w", encoding="utf-8") as f:
+                json.dump(res.schedule["missing_blocks"], f, ensure_ascii=False, indent=2)
+            print(f"  DRAFT ONLY: {len(res.schedule['missing_blocks'])} required blocks are unplaced; final schedule.csv was not written.")
+        else:
+            SCHEDULE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+            write_room_reservations_csv(SCHEDULE_OUTPUT_DIR / "room_reservations.csv", res.schedule)
         if viol:
             print("  !! HARD violations:", [f"{v.kind}:{v.detail}" for v in viol[:10]])
         else:

@@ -100,6 +100,14 @@ def test_write_schedule_outputs_can_omit_period_from_filename(tmp_path):
     assert written["csv"] == tmp_path / "out" / "schedule_20260628_140509.csv"
 
 
+def test_incomplete_output_is_draft_and_includes_missing_block_report(tmp_path):
+    payload = {"period": "001", "meta": {"is_complete": False}, "assignments": [],
+               "missing_blocks": [{"block_id": "TEST_1#L", "reason": "not placed by solver"}]}
+    written = export.write_schedule_outputs(tmp_path, payload, generated_at=datetime(2026, 6, 28, 14, 5, 9))
+    assert written["csv"].name.startswith("schedule.draft_")
+    assert json.loads(written["unplaced_blocks"].read_text())[0]["block_id"] == "TEST_1#L"
+
+
 def test_build_schedule_dict_includes_block_id():
     s = Section("ADA 403_01", "001", "ADA 403", "EDA", 4, "ADA", "Fac", "ADA-4",
                 ["i1"], 24, 3, 0, 0, 3, "Course")

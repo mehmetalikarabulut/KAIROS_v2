@@ -37,7 +37,7 @@ ROOM_RESERVATION_FIELDS = ["Room", "Dept", "Day", "Start", "End"]
 
 def build_schedule_dict(period, assignments: List[Assignment], sections: List[Section],
                         rooms: Dict[str, Room], instructors: Dict[str, Instructor],
-                        unmet_soft=None, conflicts=None) -> dict:
+                        unmet_soft=None, conflicts=None, missing_blocks=None) -> dict:
     sec_by_id = {s.section_id: s for s in sections}
     items = []
     for a in assignments:
@@ -70,10 +70,15 @@ def build_schedule_dict(period, assignments: List[Assignment], sections: List[Se
             "room_cap": room.cap if room else None,
             "is_lab_room": room.is_lab if room else None,
         })
+    missing_blocks = list(missing_blocks or [])
     return {
         "period": period,
-        "meta": {"n_assignments": len(items), "n_sections": len(sections)},
+        "meta": {"n_assignments": len(items), "n_sections": len(sections),
+                 "n_required_blocks": len(items) + len(missing_blocks),
+                 "n_missing_blocks": len(missing_blocks),
+                 "is_complete": not missing_blocks},
         "assignments": items,
+        "missing_blocks": missing_blocks,
         "unmet_soft": unmet_soft or [],
         "conflicts": conflicts or [],
     }
@@ -136,7 +141,9 @@ def write_schedule_outputs(
     out.mkdir(parents=True, exist_ok=True)
     stamp = (generated_at or datetime.now()).strftime("%Y%m%d_%H%M%S")
     suffix = period or payload.get("period")
-    stem = f"schedule_{suffix}_{stamp}" if include_period and suffix else f"schedule_{stamp}"
+    complete = bool(payload.get("meta", {}).get("is_complete", True))
+    prefix = "schedule" if complete else "schedule.draft"
+    stem = f"{prefix}_{suffix}_{stamp}" if include_period and suffix else f"{prefix}_{stamp}"
     paths = {
         "json": out / f"{stem}.json",
         "csv": out / f"{stem}.csv",
@@ -146,5 +153,10 @@ def write_schedule_outputs(
     }
     write_schedule_json(str(paths["json"]), payload)
     write_csv(str(paths["csv"]), payload)
-    write_room_reservations_csv(paths["room_reservations"], payload)
+    if not complete:
+        paths["unplaced_blocks"] = out / f"{stem}.unplaced_blocks.json"
+        with open(paths["unplaced_blocks"], "w", encoding="utf-8") as f:
+            json.dump(payload.get("missing_blocks", []), f, ensure_ascii=False, indent=2)
+    else:
+        write_room_reservations_csv(paths["room_reservations"], payload)
     return paths
