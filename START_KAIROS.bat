@@ -21,6 +21,13 @@ goto failed
 :conda_found
 if not exist "app.py" goto folder_error
 if not exist "requirements.txt" goto folder_error
+rem Keep all generated schedules and reusable room reservations outside Git.
+set "KAIROS_SCHEDULE_OUTPUT_DIR=D:\Projects\kairos_v2_schedules"
+if not exist "%KAIROS_SCHEDULE_OUTPUT_DIR%" mkdir "%KAIROS_SCHEDULE_OUTPUT_DIR%"
+if not exist "%KAIROS_SCHEDULE_OUTPUT_DIR%" (
+    echo Could not create the private schedule folder: %KAIROS_SCHEDULE_OUTPUT_DIR%
+    goto failed
+)
 echo Using the kairos Conda environment.
 call "%KAIROS_CONDA%" run --no-capture-output -n kairos python --version
 if errorlevel 1 (
@@ -42,6 +49,7 @@ if errorlevel 1 goto failed
 
 :launch
 echo Starting KAIROS from %CD%
+echo Private schedules are saved to %KAIROS_SCHEDULE_OUTPUT_DIR%
 echo Keep this window open. Press Ctrl+C to stop the app.
 echo If the browser does not open, visit http://localhost:8501
 call "%KAIROS_CONDA%" run --no-capture-output -n kairos python -m streamlit run app.py --server.port 8501 --server.address localhost

@@ -21,8 +21,9 @@ def feasible_rooms_for(block: Block, section: Section, rooms: List[Room],
         return [virtual_supply(rooms, cfg.online_room)]
     mixed = any(b.kind in ("practice", "lab") for b in section.blocks)
     if block.needs_lab:
-        # Lab teaching uses a PC laboratory even when no assistant is named.
-        wanted = {"pc_lab"}
+        # Keep an explicitly requested lab category. Legacy lab records with
+        # no category may use either lab family.
+        wanted = {rt} if rt in {"pc_lab", "electronics_lab"} else {"pc_lab", "electronics_lab"}
     elif rt == "online":
         return [virtual_supply(rooms, cfg.online_room)]
     elif rt and not mixed:

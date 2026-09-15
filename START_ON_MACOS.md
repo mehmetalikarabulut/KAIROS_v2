@@ -31,6 +31,6 @@ The scripts do not pull from GitHub, commit, or push any code or schedule data.
 For a non-standard Conda installation, start Terminal with:
 
 ```zsh
-cd /Users/mehmetalikarabulut/Projects/KAIROS_v2
+cd ~/Projects/KAIROS_v2
 KAIROS_CONDA=/full/path/to/conda ./UPDATE_AND_START_KAIROS_MAC.command
 ```

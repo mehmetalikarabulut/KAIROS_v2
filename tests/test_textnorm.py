@@ -8,8 +8,8 @@ def test_normalize_staff_id_strips_s_suffix():
 
 
 def test_normalize_name():
-    assert normalize_name("Mustafa Kerem Yüksel (S)") == "Mustafa Kerem Yüksel"
-    assert normalize_name("  Orhan   Gencel ") == "Orhan Gencel"
+    assert normalize_name("Instructor Alpha (S)") == "Instructor Alpha"
+    assert normalize_name("  Instructor   Beta ") == "Instructor Beta"
 
 
 def test_parse_int():

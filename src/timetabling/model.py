@@ -84,6 +84,10 @@ class Section:
     min_working_days: int = 0   # soft target: section should occupy at least this many days
     assistant_ids: List[str] = field(default_factory=list)
     assistant_names: dict[str, str] = field(default_factory=dict)
+    # Lab blocks always have an assistant.  When the input omits a named one,
+    # these hold a per-instructor assignment placeholder for the final schedule.
+    lab_assistant_ids: List[str] = field(default_factory=list)
+    lab_assistant_names: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self):
         # Older programmatic callers sometimes pass a scalar staff ID.
@@ -101,7 +105,9 @@ class Section:
         return {"P": "practice", "L": "lab"}.get(tag, "theory")
 
     def assistants_for(self, kind: str) -> List[str]:
-        return self.assistant_ids if kind in ("practice", "lab") else []
+        if kind == "lab":
+            return self.lab_assistant_ids or self.assistant_ids
+        return self.assistant_ids if kind == "practice" else []
 
     def human_ids(self, kind: str) -> List[str]:
         return list(dict.fromkeys(self.instructor_ids + self.assistants_for(kind)))

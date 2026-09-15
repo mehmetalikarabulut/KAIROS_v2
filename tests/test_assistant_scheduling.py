@@ -63,7 +63,7 @@ def test_tpl_distinct_and_split_ids():
         ("X#T", 4), ("X#P", 5), ("X#L", 5)]
 
 
-def test_theory_practice_and_lab_are_consecutive_and_lab_uses_pc_without_assistant():
+def test_theory_practice_and_lab_are_consecutive_and_blank_lab_assistant_is_noted():
     from timetabling.pipeline import run_pipeline
     from timetabling.model import Room
 
@@ -80,6 +80,8 @@ def test_theory_practice_and_lab_are_consecutive_and_lab_uses_pc_without_assista
     assert by_kind["theory"].end == by_kind["practice"].start
     assert by_kind["practice"].end == by_kind["lab"].start
     assert by_kind["lab"].room == "PC Lab"
+    lab_item = next(item for item in result.schedule["assignments"] if item["block_kind"] == "lab")
+    assert lab_item["assistant_name"] == "Prof X 101's assistant should schedule here"
 
 
 def test_assistant_only_pl_and_joint_availability():
@@ -145,7 +147,11 @@ def test_exact_room_type_and_mixed_theory(rt):
     secs, rooms, _, cfg = setup([row(**{"Room Type":rt})])
     s=secs[0]
     for b in s.blocks:
-        expected = {"pc_lab"} if b.kind == "lab" else {"classroom"}
+        expected = (
+            {rt} if b.kind == "lab" and rt in {"pc_lab", "electronics_lab"}
+            else {"pc_lab", "electronics_lab"} if b.kind == "lab"
+            else {"classroom"}
+        )
         assert {r.type for r in feasible_rooms_for(b, s, list(rooms.values()), cfg)} == expected
 
 
@@ -173,7 +179,7 @@ def test_online_still_has_human_conflicts(role):
 
 @pytest.mark.parametrize("solver", ["cpsat", "repair", "decompose"])
 @pytest.mark.parametrize("name", ["", "   ", None])
-def test_blank_assistant_name_schedules_pl_without_assistant(solver, name):
+def test_blank_assistant_name_schedules_practice_without_assistant_and_notes_lab(solver, name):
     from timetabling.ui_input import build_assistants_from_courselist
 
     rows = [row(**{"Assistant Name": name})]  # An old email must not assign an assistant.
@@ -186,7 +192,10 @@ def test_blank_assistant_name_schedules_pl_without_assistant(solver, name):
     assert not result.violations
     assert sum(a.end - a.start for a in result.assignments) == 5
     assert {a.kind for a in result.assignments} == {"theory", "practice", "lab"}
-    assert all(not a["assistant_id"] for a in result.schedule["assignments"])
+    items = {a["block_kind"]: a for a in result.schedule["assignments"]}
+    assert not items["practice"]["assistant_id"]
+    assert items["lab"]["assistant_id"].startswith("assistant-for:")
+    assert "assistant should schedule here" in items["lab"]["assistant_name"]
 
 
 def test_old_csv_no_assistant_and_profile_roundtrip():

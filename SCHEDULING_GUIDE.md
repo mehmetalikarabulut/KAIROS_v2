@@ -149,8 +149,9 @@ Some legacy integration tests require external datasets that are not distributed
 
 Bundled course and room examples use generic role labels. Actual course inputs,
 exported schedules, credentials, and local logs must stay outside source control.
-KAIROS saves generated schedules to
-`/Users/mehmetalikarabulut/Projects/kairos_v2_schedules`, which is outside the
-Git checkout and is never pushed by the application.
+KAIROS saves generated schedules outside the Git checkout: on Windows at
+`D:\Projects\kairos_v2_schedules`, and on macOS at
+`~/Projects/kairos_v2_schedules`. They are never
+pushed by the application.
 Analytics is unconfigured by default. Deployment owners may explicitly set
 KAIROS_ANALYTICS_ID and KAIROS_SITE_URL. Required license notices are retained.

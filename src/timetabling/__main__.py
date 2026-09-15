@@ -2,6 +2,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 
 from .config import Config
 from .io_csv import load_classrooms, load_lecturers
@@ -135,8 +136,10 @@ def main():
             print(f"[mode-A] decomposed groups={stats['n_groups']} "
                   f"assignments={stats['n_assignments']} violations={len(viol)}")
         schedule_stem = "schedule" if uploaded else f"schedule_{args.period}"
-        write_schedule_json(os.path.join(args.out, f"{schedule_stem}.json"), res.schedule)
-        write_csv(os.path.join(args.out, f"{schedule_stem}.csv"), res.schedule)
+        output_dir = Path(args.out)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        write_schedule_json(str(output_dir / f"{schedule_stem}.json"), res.schedule)
+        write_csv(str(output_dir / f"{schedule_stem}.csv"), res.schedule)
         SCHEDULE_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
         write_room_reservations_csv(SCHEDULE_OUTPUT_DIR / "room_reservations.csv", res.schedule)
         if viol:

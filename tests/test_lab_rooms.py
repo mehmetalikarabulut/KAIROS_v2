@@ -25,6 +25,30 @@ def test_lab_without_designated_room_uses_lab_family_rooms():
     assert [r.room for r in got] == ["LAB1"]
 
 
+def test_lab_honors_requested_electronics_lab_type():
+    rooms = [
+        Room("PC1", 30, True, True, type="pc_lab"),
+        Room("EL1", 30, True, True, type="electronics_lab"),
+    ]
+    section = _sec("")
+    section.required_room_type = "electronics_lab"
+
+    got = feasible_rooms_for(_lab_block(), section, rooms, Config())
+
+    assert [r.room for r in got] == ["EL1"]
+
+
+def test_undersized_compatible_lab_is_a_capacity_shortfall_fallback():
+    rooms = [Room("PC1", 30, True, True, type="pc_lab")]
+    section = _sec("")
+    section.students = 80
+    section.required_room_type = "pc_lab"
+
+    got = feasible_rooms_for(_lab_block(), section, rooms, Config())
+
+    assert [r.room for r in got] == ["PC1"]
+
+
 def test_validate_flags_lab_not_in_pinned_room():
     rooms = {"LAB1": Room("LAB1", 30, True, True), "LAB2": Room("LAB2", 30, True, True)}
     instr = {"i1": Instructor("i1", "n", False, "D")}

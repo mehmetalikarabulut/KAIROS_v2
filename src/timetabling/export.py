@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import List, Dict
 import json
 import csv
+import os
+import sys
 
 from .model import Assignment, Section, Room, Instructor
 
@@ -17,7 +19,19 @@ CSV_FIELDS = ["section_id", "course_code", "course_name", "block_kind",
 # Runtime schedules can contain course, room, and staff information.  Keep them
 # outside the source checkout so they cannot be accidentally staged or pushed
 # with application code.
-SCHEDULE_OUTPUT_DIR = Path("/Users/mehmetalikarabulut/Projects/kairos_v2_schedules")
+def _default_schedule_output_dir() -> Path:
+    """Return a private, platform-specific directory outside the checkout."""
+    configured = os.environ.get("KAIROS_SCHEDULE_OUTPUT_DIR", "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    if os.name == "nt":
+        return Path(r"D:\Projects\kairos_v2_schedules")
+    if sys.platform == "darwin":
+        return Path.home() / "Projects" / "kairos_v2_schedules"
+    return Path.home() / "kairos_v2_schedules"
+
+
+SCHEDULE_OUTPUT_DIR = _default_schedule_output_dir()
 ROOM_RESERVATION_FIELDS = ["Room", "Dept", "Day", "Start", "End"]
 
 
@@ -38,7 +52,10 @@ def build_schedule_dict(period, assignments: List[Assignment], sections: List[Se
             "course_name": s.name if s else "",
             "block_kind": a.kind,
             "assistant_id": ",".join(s.assistants_for(a.kind)) if s else "",
-            "assistant_name": " & ".join(s.assistant_names.get(i, i) for i in s.assistants_for(a.kind)) if s else "",
+            "assistant_name": " & ".join(
+                (s.lab_assistant_names if a.kind == "lab" else s.assistant_names).get(i, i)
+                for i in s.assistants_for(a.kind)
+            ) if s else "",
             "room_type": room.type if room else ("online" if s and s.is_virtual else ""),
             "is_online": room.is_virtual if room else bool(s and s.is_virtual),
             "instructor_id": ",".join(ids),

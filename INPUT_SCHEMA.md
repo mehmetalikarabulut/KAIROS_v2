@@ -111,6 +111,20 @@ Asistan Email. Missing assistant fields are valid. Use CSV headers for assistant
 extensions; the original positional fallback order remains unchanged.
 
 Assistant and instructor identities use normalized names only. Email columns are ignored.
+
+For every lab block, KAIROS requires an assistant. If `Assistant Name` is
+blank, it creates an explicit schedule note such as `Instructor A's assistant
+should schedule here`. This preserves lab staffing as a visible requirement
+without inventing a real staff member; add a named assistant to apply that
+person's availability rules.
+
+### Capacity fallback for labs
+
+KAIROS keeps compatible rooms that are smaller than the section size as an
+explicit fallback, for both theory and lab blocks. It strongly penalizes the
+missing seats, so a fitting room is always preferred. If no fitting lab exists,
+the schedule can still place the lab in the closest compatible `pc_lab` or
+`electronics_lab` room; review the capacity-shortfall warning before use.
 Use comma-separated names for teams;
 all listed assistants are required for P/L, none for Theory. Instructor requirements
 remain on all blocks. Equal identities across roles share hard occupancy.

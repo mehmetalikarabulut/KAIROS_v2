@@ -1,4 +1,6 @@
 import json
+import os
+import sys
 from datetime import datetime
 from timetabling.model import Section, Block, Room, Instructor, Assignment
 from timetabling import export
@@ -9,14 +11,14 @@ def test_build_schedule_dict_schema(tmp_path):
                 ["i1"], 24, 3, 0, 0, 3, "Course")
     s.blocks = [Block("ADA 403_01#T", "ADA 403_01", "theory", 3, False)]
     rooms = {"G005": Room("G005", 60, False, True)}
-    instr = {"i1": Instructor("i1", "Mustafa Kerem Yüksel", True, "ADA")}
+    instr = {"i1": Instructor("i1", "Instructor A", True, "ADA")}
     a = [Assignment("ADA 403_01#T", "ADA 403_01", "theory", "G005", "Fr", 13, 16)]
     payload = export.build_schedule_dict("001", a, [s], rooms, instr)
     assert payload["period"] == "001"
     item = payload["assignments"][0]
     assert item["section_id"] == "ADA 403_01"
     assert item["course_code"] == "ADA 403" and item["course_name"] == "EDA"
-    assert item["instructor_name"] == "Mustafa Kerem Yüksel"
+    assert item["instructor_name"] == "Instructor A"
     assert item["cohort"] == "ADA-4" and item["dept"] == "ADA"
     assert item["department"] == "Fac" and item["day"] == "Fr"
     assert item["start"] == 13 and item["end"] == 16
@@ -58,11 +60,29 @@ def test_room_reservations_export_contains_only_physical_assignments(tmp_path):
     ]
 
 
+def test_private_schedule_output_includes_latest_room_reservations(tmp_path):
+    payload = {"period": "Example", "meta": {}, "assignments": [
+        {"room": "ROOM-01", "department": "Department A", "day": "Mo", "start": 9, "end": 11},
+    ]}
+
+    written = export.write_schedule_outputs(tmp_path, payload)
+
+    assert written["room_reservations"] == tmp_path / "room_reservations.csv"
+    assert written["room_reservations"].read_text(encoding="utf-8-sig").splitlines() == [
+        "Room,Dept,Day,Start,End", "ROOM-01,Department A,Mo,09:00,11:00",
+    ]
+
+
 def test_private_schedule_output_dir_is_outside_source_checkout():
-    assert export.SCHEDULE_OUTPUT_DIR == export.Path(
-        "/Users/mehmetalikarabulut/Projects/kairos_v2_schedules"
+    expected = (
+        export.Path(r"D:\Projects\kairos_v2_schedules")
+        if os.name == "nt"
+        else export.Path.home() / "Projects" / "kairos_v2_schedules"
+        if sys.platform == "darwin"
+        else export.Path.home() / "kairos_v2_schedules"
     )
-    assert "KAIROS_v2" not in export.SCHEDULE_OUTPUT_DIR.parts
+    assert export.SCHEDULE_OUTPUT_DIR == expected
+    assert export.SCHEDULE_OUTPUT_DIR.name == "kairos_v2_schedules"
 
 
 def test_write_schedule_outputs_can_omit_period_from_filename(tmp_path):

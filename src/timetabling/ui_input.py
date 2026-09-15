@@ -178,11 +178,22 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
             if sid in seen_section_ids:
                 continue
             seen_section_ids.add(sid)
+            assistants = people_for_row(r, "Assistant")
+            instructors = people_for_row(r, "Instructor")
+            # A lab must be staffed. If its CSV row has no named assistant,
+            # reserve an explicit placeholder tied to its instructor. The
+            # placeholder is exported as an actionable note and keeps the
+            # requirement visible without inventing a real person's identity.
+            if L and not assistants:
+                lead_id, lead_name = next(iter(instructors.items()), ("instructor", "Instructor"))
+                lab_assistants = {f"assistant-for:{lead_id}": f"{lead_name}'s assistant should schedule here"}
+            else:
+                lab_assistants = assistants
             sections.append(Section(
                 section_id=sid, period=period, code=code,
                 name=str(r.get("Course Name", "")).strip(),
                 level=level, dept_code=dept, department=department,
-                cohort_key=cohort, instructor_ids=list(people_for_row(r, "Instructor")), students=students,
+                cohort_key=cohort, instructor_ids=list(instructors), students=students,
                 T=T, P=P, L=L, Cr=(T + P + L), category="",
                 blocks=blocks_from_tpl(sid, T, P, L, T + P + L,
                                        cfg.max_block_len,
@@ -190,8 +201,10 @@ def build_sections_from_courselist(rows: List[Dict], period: str,
                 plan_room="",
                 requires_lab_room=(rtype in ("pc_lab", "electronics_lab")),
                 is_virtual=(rtype == "online"),
-                assistant_ids=list(people_for_row(r, "Assistant")),
-                assistant_names=people_for_row(r, "Assistant"),
+                assistant_ids=list(assistants),
+                assistant_names=assistants,
+                lab_assistant_ids=list(lab_assistants),
+                lab_assistant_names=lab_assistants,
                 required_room_type=rtype,
                 fixed_day=fixed_day, fixed_start=fixed_start,
                 min_working_days=min_days,

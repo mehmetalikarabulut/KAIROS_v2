@@ -19,6 +19,12 @@ Keep the command window open while using the app. Press Ctrl+C to stop it. Stop
 the previous instance before launching another one. Restart after code updates.
 
 Both scripts work from any current directory, including folders containing spaces.
+Every Windows launch writes generated schedules and the latest reusable
+`room_reservations.csv` to `D:\Projects\kairos_v2_schedules`, outside this
+Git checkout. This folder is created automatically and must not be added to
+GitHub. After each solve, `room_reservations.csv` is refreshed with that
+schedule's physical-room assignments and can be uploaded on the next run.
+
 If automatic Conda discovery fails, open Anaconda Prompt or Miniconda Prompt and run:
 
 ```bat
